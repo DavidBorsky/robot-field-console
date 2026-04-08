@@ -6,7 +6,31 @@
 <title>Robot Field</title>
 
 <style>
-  body { font-family: system-ui, Arial, sans-serif; margin: 20px; }
+  body {
+    font-family: system-ui, Arial, sans-serif;
+    margin: 20px;
+  }
+
+  .mainLayout {
+    display: flex;
+    align-items: flex-start;
+    gap: 24px;
+  }
+
+  .leftPanel {
+    width: 960px;
+    flex: 0 0 960px;
+  }
+
+  .rightPanel {
+    width: 420px;
+    min-height: 600px;
+    border: 2px solid rgba(0,0,0,0.2);
+    border-radius: 16px;
+    background: rgba(0,0,0,0.04);
+    padding: 14px;
+    box-sizing: border-box;
+  }
 
   #wrap { width: 960px; }
 
@@ -181,92 +205,136 @@
     border-radius: 8px;
     font-size: 13px;
   }
+
+  .cameraTitle {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+
+  .cameraView {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    border: 2px dashed rgba(0,0,0,0.25);
+    border-radius: 14px;
+    background: #111;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    text-align: center;
+    overflow: hidden;
+  }
+
+  .cameraHint {
+    margin-top: 12px;
+    font-size: 13px;
+    color: #444;
+    line-height: 1.4;
+  }
 </style>
 </head>
 
 <body>
 
-<div class="topBar">
-  <h2>Robot Field (96" x 60")</h2>
+<div class="mainLayout">
+  <div class="leftPanel">
+    <div class="topBar">
+      <h2>Robot Field (96" x 60")</h2>
 
-  <div class="modeToggle" id="controlModeToggle" aria-label="Control mode toggle">
-    <button id="autonBtn" class="modeBtn active" type="button">Auton</button>
-    <button id="teleopBtn" class="modeBtn" type="button">Teleop</button>
-  </div>
-</div>
-
-<div class="hint" id="hint">
-  <b>Controls:</b>
-  Drag a dot to move it. <b>Shift + click a dot</b> to delete.
-  <b>Shift + drag the curve</b> to “grab” and reshape it.
-  Press <b>Enter</b> to toggle View Mode (locks everything). In View Mode, click the field to continue editing.
-  Coordinates are in <b>inches</b>. (0,0) is bottom-left.
-</div>
-
-<div id="wrap">
-  <div id="field" tabindex="0" aria-label="Robot field editor">
-    <div id="grid"></div>
-    <svg id="lines" width="960" height="600"></svg>
-  </div>
-
-  <div class="row">
-    <div class="inline">
-      <label for="tension">Curve tightness</label>
-      <input id="tension" type="range" min="0.2" max="1.2" step="0.05" value="0.85" />
-      <span id="tensionVal" class="pill">0.85</span>
+      <div class="modeToggle" id="controlModeToggle" aria-label="Control mode toggle">
+        <button id="autonBtn" class="modeBtn active" type="button">Auton</button>
+        <button id="teleopBtn" class="modeBtn" type="button">Teleop</button>
+      </div>
     </div>
 
-    <div class="inline">
-      <label class="inline">
-        <input id="snapOn" type="checkbox" />
-        Snap
-      </label>
-      <select id="snapStep">
-        <option value="0.1">0.1"</option>
-        <option value="0.25">0.25"</option>
-        <option value="0.5" selected>0.5"</option>
-        <option value="1">1"</option>
-        <option value="2">2"</option>
-      </select>
+    <div class="hint" id="hint">
+      <b>Controls:</b>
+      Drag a dot to move it. <b>Shift + click a dot</b> to delete.
+      <b>Shift + drag the curve</b> to “grab” and reshape it.
+      Press <b>Enter</b> to toggle View Mode (locks everything). In View Mode, click the field to continue editing.
+      Coordinates are in <b>inches</b>. (0,0) is bottom-left.
     </div>
 
-    <div class="pill">Path length: <b><span id="pathLen">0.0</span>"</b></div>
+    <div id="wrap">
+      <div id="field" tabindex="0" aria-label="Robot field editor">
+        <div id="grid"></div>
+        <svg id="lines" width="960" height="600"></svg>
+      </div>
 
-    <div class="inline">
-      <label class="inline">
-        <input id="showArrows" type="checkbox" checked />
-        Heading arrows
-      </label>
-      <label class="inline small">
-        <input id="showGrid" type="checkbox" checked />
-        Grid
-      </label>
+      <div class="row">
+        <div class="inline">
+          <label for="tension">Curve tightness</label>
+          <input id="tension" type="range" min="0.2" max="1.2" step="0.05" value="0.85" />
+          <span id="tensionVal" class="pill">0.85</span>
+        </div>
+
+        <div class="inline">
+          <label class="inline">
+            <input id="snapOn" type="checkbox" />
+            Snap
+          </label>
+          <select id="snapStep">
+            <option value="0.1">0.1"</option>
+            <option value="0.25">0.25"</option>
+            <option value="0.5" selected>0.5"</option>
+            <option value="1">1"</option>
+            <option value="2">2"</option>
+          </select>
+        </div>
+
+        <div class="pill">Path length: <b><span id="pathLen">0.0</span>"</b></div>
+
+        <div class="inline">
+          <label class="inline">
+            <input id="showArrows" type="checkbox" checked />
+            Heading arrows
+          </label>
+          <label class="inline small">
+            <input id="showGrid" type="checkbox" checked />
+            Grid
+          </label>
+        </div>
+      </div>
+
+      <div class="row coordInputs">
+        <span class="pill">Add point:</span>
+        <label class="inline">X <input id="xIn" type="number" step="0.1" min="0" max="96" placeholder="0–96"></label>
+        <label class="inline">Y <input id="yIn" type="number" step="0.1" min="0" max="60" placeholder="0–60"></label>
+        <button id="addTyped">Add</button>
+      </div>
+
+      <div class="row">
+        <button id="undo">Undo</button>
+        <button id="clear">Clear</button>
+        <button id="reverse">Reverse Path</button>
+        <button id="copyWp">Copy Waypoints JSON</button>
+        <button id="copySamples">Copy Sampled Path JSON</button>
+        <button id="save">Save</button>
+        <button id="load">Load</button>
+        <button id="import">Import JSON</button>
+      </div>
+
+      <textarea id="out" readonly></textarea>
+
+      <div class="statusBar">
+        <div><b>Mode:</b> <span id="modeLabel">Edit | auton</span> <span id="modeHint" class="small"></span></div>
+        <div><b>Cursor:</b> <span id="cursorLabel">(—, —)</span></div>
+      </div>
     </div>
   </div>
 
-  <div class="row coordInputs">
-    <span class="pill">Add point:</span>
-    <label class="inline">X <input id="xIn" type="number" step="0.1" min="0" max="96" placeholder="0–96"></label>
-    <label class="inline">Y <input id="yIn" type="number" step="0.1" min="0" max="60" placeholder="0–60"></label>
-    <button id="addTyped">Add</button>
-  </div>
+  <div class="rightPanel">
+    <div class="cameraTitle">Camera View</div>
 
-  <div class="row">
-    <button id="undo">Undo</button>
-    <button id="clear">Clear</button>
-    <button id="reverse">Reverse Path</button>
-    <button id="copyWp">Copy Waypoints JSON</button>
-    <button id="copySamples">Copy Sampled Path JSON</button>
-    <button id="save">Save</button>
-    <button id="load">Load</button>
-    <button id="import">Import JSON</button>
-  </div>
+    <div class="cameraView" id="cameraView">
+      Camera feed will go here
+    </div>
 
-  <textarea id="out" readonly></textarea>
-
-  <div class="statusBar">
-    <div><b>Mode:</b> <span id="modeLabel">Edit | auton</span> <span id="modeHint" class="small"></span></div>
-    <div><b>Cursor:</b> <span id="cursorLabel">(—, —)</span></div>
+    <div class="cameraHint">
+      This space is reserved for your live robot camera, webcam feed, or vision output.
+    </div>
   </div>
 </div>
 
@@ -1015,4 +1083,3 @@ fullRender();
 
 </body>
 </html>
-
