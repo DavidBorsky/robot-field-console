@@ -249,6 +249,31 @@
     padding: 4px 0;
   }
 
+  .runSection {
+    margin-top: 14px;
+  }
+
+  .runBtn {
+    width: 100%;
+    padding: 12px 16px;
+    border: none;
+    border-radius: 12px;
+    background: black;
+    color: white;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    margin: 0;
+  }
+
+  .runBtn:hover {
+    opacity: 0.92;
+  }
+
+  .runBtn:active {
+    transform: translateY(1px);
+  }
+
   .cameraHint {
     margin-top: 12px;
     font-size: 13px;
@@ -361,6 +386,10 @@
       <div class="cameraCoordsRow"><span>Heading:</span> <span id="robotHeading">0.00°</span></div>
     </div>
 
+    <div class="runSection">
+      <button id="runBtn" class="runBtn" type="button">Run</button>
+    </div>
+
     <div class="cameraHint">
       This space is reserved for your live robot camera, webcam feed, or vision output.
     </div>
@@ -407,6 +436,7 @@ const cursorLabel = document.getElementById("cursorLabel");
 const robotX = document.getElementById("robotX");
 const robotY = document.getElementById("robotY");
 const robotHeading = document.getElementById("robotHeading");
+const runBtn = document.getElementById("runBtn");
 
 let controlMode = "auton";
 
@@ -510,6 +540,22 @@ function updateRobotCoords() {
   robotY.textContent = robotPose.y.toFixed(2);
   robotHeading.textContent = robotPose.heading.toFixed(2) + "°";
 }
+
+/* =======================
+   Run button
+======================= */
+runBtn.addEventListener("click", () => {
+  const pts = getPts();
+
+  if (pts.length < 2) {
+    alert("Add at least 2 waypoints before running.");
+    return;
+  }
+
+  console.log("Run pressed for mode:", controlMode);
+  console.log("Waypoints:", pts);
+  alert(`Run started for ${controlMode} with ${pts.length} waypoint(s).`);
+});
 
 /* =======================
    Catmull-Rom -> cubic Bezier
