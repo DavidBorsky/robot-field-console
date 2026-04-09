@@ -356,7 +356,7 @@
         <button id="undo">Undo</button>
         <button id="clear">Clear</button>
         <button id="reverse">Reverse Path</button>
-        <button id="copyWp">Copy Waypoints JSON</button>
+        <button id="copyWp">Copy Robot Paths JSON</button>
         <button id="copySamples">Copy Sampled Path JSON</button>
         <button id="save">Save</button>
         <button id="load">Load</button>
@@ -397,6 +397,9 @@
 </div>
 
 <script>
+/* =======================
+   Constants / state
+======================= */
 const FIELD_W_IN = 96;
 const FIELD_H_IN = 60;
 const PX_PER_IN = 10;
@@ -474,6 +477,9 @@ let hoverIn = null;
 let viewMode = false;
 let curveDrag = null;
 
+/* =======================
+   Helpers
+======================= */
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
 }
@@ -509,6 +515,73 @@ function distPx(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+function formatPoint(p) {
+  return [Number(p.x.toFixed(2)), Number(p.y.toFixed(2))];
+}
+
+function buildRobotPathsPayload() {
+  return {
+    paths: {
+      auton: modeData.auton.pts.map(formatPoint),
+      teleop: modeData.teleop.pts.map(formatPoint)
+    },
+    units: "inches",
+    field: {
+      width: FIELD_W_IN,
+      height: FIELD_H_IN
+    }
+  };
+}
+
+function applyPathArray(mode, arr) {
+  const pts = modeData[mode].pts;
+  pts.length = 0;
+
+  if (!Array.isArray(arr)) {
+    modeData[mode].selectedIndex = -1;
+    return;
+  }
+
+  for (const item of arr) {
+    if (!Array.isArray(item) || item.length < 2) continue;
+    const x = clamp(Number(item[0]), 0, FIELD_W_IN);
+    const y = clamp(Number(item[1]), 0, FIELD_H_IN);
+    if (Number.isNaN(x) || Number.isNaN(y)) continue;
+    pts.push(snapPoint({ x, y }));
+  }
+
+  modeData[mode].selectedIndex = pts.length ? pts.length - 1 : -1;
+}
+
+function loadRobotPathsPayload(payload) {
+  if (!payload || typeof payload !== "object" || !payload.paths) {
+    throw new Error("invalid payload");
+  }
+
+  applyPathArray("auton", payload.paths.auton);
+  applyPathArray("teleop", payload.paths.teleop);
+
+  if (payload.ui?.controlMode === "teleop" || payload.ui?.controlMode === "auton") {
+    controlMode = payload.ui.controlMode;
+  }
+
+  if (payload.ui?.tension != null) {
+    tensionSlider.value = String(payload.ui.tension);
+  }
+
+  if (payload.ui?.snap) {
+    snapOn.checked = !!payload.ui.snap.on;
+    snapStep.value = String(payload.ui.snap.step ?? snapStep.value);
+  }
+
+  tensionVal.textContent = Number(tensionSlider.value).toFixed(2);
+  autonBtn.classList.toggle("active", controlMode === "auton");
+  teleopBtn.classList.toggle("active", controlMode === "teleop");
+}
+
+/* =======================
+   Mode switching
+======================= */
 function setControlMode(mode) {
   controlMode = mode;
 
@@ -523,6 +596,9 @@ function setControlMode(mode) {
 autonBtn.addEventListener("click", () => setControlMode("auton"));
 teleopBtn.addEventListener("click", () => setControlMode("teleop"));
 
+/* =======================
+   Robot coordinate display
+======================= */
 function updateRobotCoords() {
   robotX.textContent = robotPose.x.toFixed(2);
   robotY.textContent = robotPose.y.toFixed(2);
@@ -542,6 +618,9 @@ runBtn.addEventListener("click", () => {
   alert(`Run started for ${controlMode} with ${pts.length} waypoint(s).`);
 });
 
+/* =======================
+   Catmull-Rom -> cubic Bezier
+======================= */
 function catmullRomPathD(pointsPx, tension = 0.85) {
   if (pointsPx.length === 0) return "";
   if (pointsPx.length === 1) return `M ${pointsPx[0].x} ${pointsPx[0].y}`;
@@ -607,10 +686,16 @@ function sampleSpline(pointsIn, samplesPerSeg = SAMPLES_PER_SEG) {
   return outS;
 }
 
+/* =======================
+   Temporary safe stub
+======================= */
 function insertPointNearCurve() {
   return null;
 }
 
+/* =======================
+   SVG layers
+======================= */
 const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
 defs.innerHTML = `
   <marker id="arrowHead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
@@ -652,6 +737,9 @@ hoverLabel.style.opacity = "1";
 hoverDot.appendChild(hoverLabel);
 field.appendChild(hoverDot);
 
+/* =======================
+   Rendering
+======================= */
 function setModeUI() {
   modeLabel.textContent = viewMode ? `View | ${controlMode}` : `Edit | ${controlMode}`;
   modeHint.textContent = viewMode ? " (press Enter or click field to continue)" : " (press Enter to lock/view)";
@@ -732,12 +820,7 @@ function updateLength() {
 }
 
 function updateJSONOnly() {
-  const pts = getPts();
-  out.value = JSON.stringify(
-    pts.map(p => [Number(p.x.toFixed(2)), Number(p.y.toFixed(2))]),
-    null,
-    2
-  );
+  out.value = JSON.stringify(buildRobotPathsPayload(), null, 2);
 }
 
 function positionDot(dotEl, p) {
@@ -784,6 +867,9 @@ function fullRender() {
   updateJSONOnly();
 }
 
+/* =======================
+   Dot interactions
+======================= */
 function attachDotHandlers(dot, iAtCreation) {
   let pointerId = null;
   let startClient = null;
@@ -859,6 +945,9 @@ function attachDotHandlers(dot, iAtCreation) {
   });
 }
 
+/* =======================
+   Field interactions
+======================= */
 function setCursorLabel(p) {
   if (!p) {
     cursorLabel.textContent = "(—, —)";
@@ -941,6 +1030,9 @@ field.addEventListener("click", (e) => {
   fullRender();
 });
 
+/* =======================
+   Enter toggles View Mode
+======================= */
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
 
@@ -954,6 +1046,9 @@ document.addEventListener("keydown", (e) => {
   fullRender();
 });
 
+/* =======================
+   Buttons + typed point
+======================= */
 document.getElementById("undo").onclick = () => {
   const pts = getPts();
 
@@ -985,7 +1080,7 @@ document.getElementById("reverse").onclick = () => {
 
 document.getElementById("copyWp").onclick = async () => {
   await navigator.clipboard.writeText(out.value);
-  alert("Copied waypoints JSON!");
+  alert("Copied robot paths JSON!");
 };
 
 function sampledPathJSON() {
@@ -1006,16 +1101,16 @@ document.getElementById("copySamples").onclick = async () => {
 };
 
 document.getElementById("save").onclick = () => {
-  const pts = getPts();
-
-  const name = prompt("Save name?", `${controlMode}-path-1`);
+  const name = prompt("Save name?", "robot-paths-1");
   if (!name) return;
 
   const payload = {
-    controlMode,
-    pts: pts.map(p => [Number(p.x.toFixed(4)), Number(p.y.toFixed(4))]),
-    tension: Number(tensionSlider.value),
-    snap: { on: snapOn.checked, step: Number(snapStep.value) },
+    ...buildRobotPathsPayload(),
+    ui: {
+      controlMode,
+      tension: Number(tensionSlider.value),
+      snap: { on: snapOn.checked, step: Number(snapStep.value) }
+    },
     updatedAt: new Date().toISOString()
   };
 
@@ -1042,26 +1137,7 @@ document.getElementById("load").onclick = () => {
 
   try {
     const payload = JSON.parse(raw);
-
-    if (payload.controlMode === "teleop" || payload.controlMode === "auton") {
-      controlMode = payload.controlMode;
-    }
-
-    const pts = getPts();
-    pts.length = 0;
-    (payload.pts ?? []).forEach(a => pts.push({ x: Number(a[0]), y: Number(a[1]) }));
-
-    if (payload.tension != null) tensionSlider.value = String(payload.tension);
-    if (payload.snap) {
-      snapOn.checked = !!payload.snap.on;
-      snapStep.value = String(payload.snap.step ?? snapStep.value);
-    }
-
-    tensionVal.textContent = Number(tensionSlider.value).toFixed(2);
-    setSelectedIndex(pts.length ? pts.length - 1 : -1);
-
-    autonBtn.classList.toggle("active", controlMode === "auton");
-    teleopBtn.classList.toggle("active", controlMode === "teleop");
+    loadRobotPathsPayload(payload);
 
     fullRender();
     alert(`Loaded "${name}"`);
@@ -1071,24 +1147,20 @@ document.getElementById("load").onclick = () => {
 };
 
 document.getElementById("import").onclick = () => {
-  const pts = getPts();
-
-  const raw = prompt('Paste waypoints JSON like:\n[[12,8],[30,8],[30,40]]');
+  const raw = prompt(
+    'Paste robot-paths JSON like:\n{"paths":{"auton":[[12,8],[30,8]],"teleop":[]}, "units":"inches", "field":{"width":96,"height":60}}'
+  );
   if (!raw) return;
 
   try {
-    const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)) throw new Error("not array");
+    const payload = JSON.parse(raw);
 
-    pts.length = 0;
-    for (const item of arr) {
-      if (!Array.isArray(item) || item.length < 2) continue;
-      const x = clamp(Number(item[0]), 0, FIELD_W_IN);
-      const y = clamp(Number(item[1]), 0, FIELD_H_IN);
-      pts.push(snapPoint({ x, y }));
+    if (Array.isArray(payload)) {
+      applyPathArray(controlMode, payload);
+    } else {
+      loadRobotPathsPayload(payload);
     }
 
-    setSelectedIndex(pts.length ? pts.length - 1 : -1);
     fullRender();
   } catch {
     alert("Invalid JSON.");
@@ -1132,6 +1204,9 @@ showGrid.addEventListener("change", () => {
   grid.style.display = showGrid.checked ? "" : "none";
 });
 
+/* =======================
+   Init
+======================= */
 tensionVal.textContent = Number(tensionSlider.value).toFixed(2);
 grid.style.display = showGrid.checked ? "" : "none";
 autonBtn.classList.toggle("active", controlMode === "auton");
@@ -1142,3 +1217,4 @@ fullRender();
 
 </body>
 </html>
+
