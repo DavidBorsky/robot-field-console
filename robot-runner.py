@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,6 +42,8 @@ def run_path(
     path_file: Path = DEFAULT_PATH_FILE,
     simulate_connection: bool = True,
     follower_controller: str = "pure_pursuit",
+    serial_port: str = "/dev/ttyACM0",
+    serial_baud: int = 115200,
 ) -> None:
     payload = load_robot_paths(path_file)
     waypoints = get_waypoints(payload, mode)
@@ -56,6 +59,7 @@ def run_path(
     print(f"Units: {payload.get('units', 'unknown')}")
     print(f"Field: {payload.get('field', {})}")
     print(f"Follower: {follower_controller}")
+    print(f"Connection mode: {'simulated' if simulate_connection else f'serial ({serial_port})'}")
 
     odom = FrontBackMecanumOdometry()
     odom.reset(x=waypoints[0].x, y=waypoints[0].y, heading_deg=0.0)
@@ -65,7 +69,11 @@ def run_path(
     edge_safety = EdgeSafetyController()
     camera = create_camera(simulate=simulate_connection)
     gyro = create_gyro(simulate=simulate_connection)
-    connection = create_connection(simulate=simulate_connection)
+    connection = create_connection(
+        simulate=simulate_connection,
+        port=serial_port,
+        baudrate=serial_baud,
+    )
     camera.start()
     connection.connect()
 
@@ -144,4 +152,38 @@ def run_path(
 
 
 if __name__ == "__main__":
-    run_path()
+    parser = argparse.ArgumentParser(description="Run the robot path follower.")
+    parser.add_argument("--mode", default="auton", choices=["auton", "teleop"], help="Path mode to run")
+    parser.add_argument(
+        "--path-file",
+        default=str(DEFAULT_PATH_FILE),
+        help="Path to robot-paths.json",
+    )
+    parser.add_argument(
+        "--connection",
+        default="simulated",
+        choices=["simulated", "serial"],
+        help="Use simulated output or a real serial port",
+    )
+    parser.add_argument(
+        "--port",
+        default="/dev/ttyACM0",
+        help="Serial port, for example COM3 or /dev/ttyACM0",
+    )
+    parser.add_argument("--baud", type=int, default=115200, help="Serial baud rate")
+    parser.add_argument(
+        "--follower",
+        default="pure_pursuit",
+        choices=["pure_pursuit", "ramsete"],
+        help="Follower controller to use",
+    )
+    args = parser.parse_args()
+
+    run_path(
+        mode=args.mode,
+        path_file=Path(args.path_file),
+        simulate_connection=(args.connection == "simulated"),
+        follower_controller=args.follower,
+        serial_port=args.port,
+        serial_baud=args.baud,
+    )

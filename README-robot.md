@@ -53,6 +53,10 @@ The browser UI plans paths, and `robot-paths.json` is the shared format that bot
   Pi-to-Arduino or laptop-to-Pi communications.
   A common setup is laptop -> Raspberry Pi over Wi-Fi, then Raspberry Pi -> Arduino over serial.
 
+- `arduino/uno_bridge/uno_bridge.ino`
+  Arduino Uno sketch that receives `front` and `back` motor commands over serial.
+  This is the low-level bridge between Python and the future motor driver wiring.
+
 ## Hardware split
 
 - Raspberry Pi
@@ -86,6 +90,24 @@ True rotational behavior may need to be refined after the real chassis is built 
 3. Put that payload into `robot-paths.json`.
 4. Run `robot-runner.py` on the Raspberry Pi.
 5. `robot-runner.py` loads the chosen path and uses PID, odometry, drivetrain, gyro, camera, and connection code to follow it.
+
+## Current Arduino protocol
+
+Python currently sends motor commands like:
+
+```text
+M,<front_output>,<back_output>
+```
+
+Example:
+
+```text
+M,0.5000,-0.2000
+```
+
+The Arduino Uno sketch stores those values, clamps them to `[-1.0, 1.0]`, and
+is ready to map them onto the real front/back motor driver pins once the wiring
+is finalized.
 
 ## Edge safety behavior
 

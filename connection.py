@@ -7,6 +7,8 @@ This starts with two modes:
 
 from __future__ import annotations
 
+import argparse
+import time
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -103,6 +105,10 @@ class SerialArduinoConnection:
         if serial is None:
             raise RuntimeError("pyserial is not installed")
         self.serial_handle = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
+        # Arduino Uno often resets when the serial port is opened.
+        time.sleep(2.0)
+        self.serial_handle.reset_input_buffer()
+        self.serial_handle.reset_output_buffer()
 
     def _require_handle(self):
         if self.serial_handle is None:
@@ -113,6 +119,10 @@ class SerialArduinoConnection:
         handle = self._require_handle()
         payload = f"M,{command.front_output:.4f},{command.back_output:.4f}\n"
         handle.write(payload.encode("utf-8"))
+        handle.flush()
+        response = handle.readline().decode("utf-8", errors="replace").strip()
+        if response:
+            print(f"[serial] {response}")
 
     def read_sensors(self) -> SensorSnapshot:
         # Placeholder until the Arduino sends back real sensor packets.
@@ -132,7 +142,31 @@ class SerialArduinoConnection:
         return RobotStatus(connected=connected, mode="serial", detail=detail)
 
 
-def create_connection(simulate: bool = True) -> RobotConnection:
+def create_connection(
+    simulate: bool = True,
+    port: str = "/dev/ttyACM0",
+    baudrate: int = 115200,
+) -> RobotConnection:
     if simulate:
         return SimulatedConnection()
-    return SerialArduinoConnection()
+    return SerialArduinoConnection(port=port, baudrate=baudrate)
+
+
+def run_serial_smoke_test(port: str, baudrate: int = 115200) -> None:
+    connection = SerialArduinoConnection(port=port, baudrate=baudrate)
+    connection.connect()
+    try:
+        print(f"Connected to Arduino on {port} at {baudrate} baud")
+        connection.send_motor_command(MotorCommand(front_output=0.5, back_output=-0.2))
+        connection.send_motor_command(MotorCommand(front_output=0.0, back_output=0.0))
+        print(f"Status: {connection.status()}")
+    finally:
+        connection.close()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Test the Arduino serial connection.")
+    parser.add_argument("--port", required=True, help="Serial port, for example COM3 or /dev/ttyACM0")
+    parser.add_argument("--baud", type=int, default=115200, help="Serial baud rate")
+    args = parser.parse_args()
+    run_serial_smoke_test(port=args.port, baudrate=args.baud)
