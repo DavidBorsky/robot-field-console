@@ -1,0 +1,11 @@
+{
+  "paths": {
+    "auton": [],
+    "teleop": []
+  },
+  "units": "inches",
+  "field": {
+    "width": 96,
+    "height": 60
+  }
+}

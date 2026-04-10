@@ -198,6 +198,18 @@
     font-size: 13px;
   }
 
+  .syncRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .syncStatus {
+    font-size: 13px;
+    color: #333;
+  }
+
   .coordInputs input {
     width: 90px;
     padding: 6px 8px;
@@ -363,6 +375,11 @@
         <button id="import">Import JSON</button>
       </div>
 
+      <div class="syncRow">
+        <button id="linkRobotPaths" type="button">Link robot-paths.json</button>
+        <span id="syncStatus" class="syncStatus">Auto-sync off</span>
+      </div>
+
       <textarea id="out" readonly></textarea>
 
       <div class="statusBar">
@@ -428,6 +445,8 @@ const showGrid = document.getElementById("showGrid");
 const xIn = document.getElementById("xIn");
 const yIn = document.getElementById("yIn");
 const addTypedBtn = document.getElementById("addTyped");
+const linkRobotPathsBtn = document.getElementById("linkRobotPaths");
+const syncStatus = document.getElementById("syncStatus");
 
 const modeLabel = document.getElementById("modeLabel");
 const modeHint = document.getElementById("modeHint");
@@ -476,6 +495,10 @@ function setSelectedIndex(v) {
 let hoverIn = null;
 let viewMode = false;
 let curveDrag = null;
+let robotPathsFileHandle = null;
+let syncTimer = null;
+let syncWriteInFlight = false;
+let syncQueuedAfterWrite = false;
 
 /* =======================
    Helpers
@@ -531,6 +554,82 @@ function buildRobotPathsPayload() {
       height: FIELD_H_IN
     }
   };
+}
+
+function setSyncStatus(message, isError = false) {
+  syncStatus.textContent = message;
+  syncStatus.style.color = isError ? "#a11" : "#333";
+}
+
+async function writeRobotPathsFileNow() {
+  if (!robotPathsFileHandle) return;
+  if (syncWriteInFlight) {
+    syncQueuedAfterWrite = true;
+    return;
+  }
+
+  syncWriteInFlight = true;
+  try {
+    const writable = await robotPathsFileHandle.createWritable();
+    await writable.write(JSON.stringify(buildRobotPathsPayload(), null, 2) + "\n");
+    await writable.close();
+    setSyncStatus("Auto-sync on: robot-paths.json updated");
+  } catch (err) {
+    console.error("Failed to auto-sync robot-paths.json", err);
+    setSyncStatus("Auto-sync failed", true);
+  } finally {
+    syncWriteInFlight = false;
+    if (syncQueuedAfterWrite) {
+      syncQueuedAfterWrite = false;
+      scheduleRobotPathsSync();
+    }
+  }
+}
+
+function scheduleRobotPathsSync() {
+  if (!robotPathsFileHandle) return;
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    writeRobotPathsFileNow();
+  }, 150);
+}
+
+async function linkRobotPathsFile() {
+  if (!window.showOpenFilePicker) {
+    alert("This browser does not support direct file linking. Use a Chromium-based browser for auto-sync.");
+    return;
+  }
+
+  try {
+    const [handle] = await window.showOpenFilePicker({
+      multiple: false,
+      types: [
+        {
+          description: "JSON files",
+          accept: {
+            "application/json": [".json"]
+          }
+        }
+      ]
+    });
+
+    if (!handle) return;
+
+    const permission = await handle.requestPermission({ mode: "readwrite" });
+    if (permission !== "granted") {
+      setSyncStatus("Auto-sync permission not granted", true);
+      return;
+    }
+
+    robotPathsFileHandle = handle;
+    setSyncStatus(`Auto-sync linked: ${handle.name}`);
+    await writeRobotPathsFileNow();
+  } catch (err) {
+    if (err && err.name === "AbortError") return;
+    console.error("Failed to link robot-paths.json", err);
+    setSyncStatus("Failed to link robot-paths.json", true);
+  }
 }
 
 function applyPathArray(mode, arr) {
@@ -821,6 +920,7 @@ function updateLength() {
 
 function updateJSONOnly() {
   out.value = JSON.stringify(buildRobotPathsPayload(), null, 2);
+  scheduleRobotPathsSync();
 }
 
 function positionDot(dotEl, p) {
@@ -1083,6 +1183,10 @@ document.getElementById("copyWp").onclick = async () => {
   alert("Copied robot paths JSON!");
 };
 
+linkRobotPathsBtn.onclick = () => {
+  linkRobotPathsFile();
+};
+
 function sampledPathJSON() {
   const pts = getPts();
   const samples = sampleSpline(pts, SAMPLES_PER_SEG);
@@ -1217,4 +1321,3 @@ fullRender();
 
 </body>
 </html>
-
