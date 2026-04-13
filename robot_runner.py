@@ -278,6 +278,29 @@ def run_path(
             connection.send_motor_command(command)
             last_command = command
 
+            if debug.get("reason") == "field_boundary_stop":
+                print("  safety: field boundary reached, motors stopped")
+                emit_status(
+                    status_callback,
+                    running=False,
+                    mode=mode,
+                    status="stopped",
+                    detail="field boundary reached",
+                    pose={
+                        "x": odom.pose.x,
+                        "y": odom.pose.y,
+                        "heading_deg": odom.pose.heading_deg,
+                    },
+                    step=step,
+                    max_steps=SIM_MAX_STEPS_PER_RUN,
+                    waypoint_index=debug["current_index"],
+                    remaining_distance=debug["remaining_distance"],
+                    velocity_in_per_s=0.0,
+                    motor_rpm_estimate=0.0,
+                    velocity_source="encoder",
+                )
+                break
+
             if debug["finished"]:
                 print("  path complete: goal tolerance reached")
                 path_completed = True
