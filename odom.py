@@ -6,6 +6,10 @@ from constants import (
     ENCODER_COUNTS_PER_OUTPUT_REV,
     ODOM_FORWARD_SCALE,
     ODOM_STRAFE_SCALE,
+    PLAYABLE_MAX_X_IN,
+    PLAYABLE_MAX_Y_IN,
+    PLAYABLE_MIN_X_IN,
+    PLAYABLE_MIN_Y_IN,
     TRACK_WIDTH_IN,
     WHEEL_CIRCUMFERENCE_IN,
 )
@@ -18,6 +22,10 @@ def wrap_heading_radians(angle: float) -> float:
     while angle < -pi:
         angle += 2.0 * pi
     return angle
+
+
+def clamp(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, value))
 
 
 class Pose2D:
@@ -71,7 +79,11 @@ class DifferentialOdometry:
         self.pose = Pose2D()
 
     def reset(self, x: float = 0.0, y: float = 0.0, heading_deg: float = 0.0) -> None:
-        self.pose = Pose2D(x=x, y=y, heading_rad=wrap_heading_radians(radians(heading_deg)))
+        self.pose = Pose2D(
+            x=clamp(x, PLAYABLE_MIN_X_IN, PLAYABLE_MAX_X_IN),
+            y=clamp(y, PLAYABLE_MIN_Y_IN, PLAYABLE_MAX_Y_IN),
+            heading_rad=wrap_heading_radians(radians(heading_deg)),
+        )
 
     def update(
         self,
@@ -98,6 +110,8 @@ class DifferentialOdometry:
         avg_heading = (self.pose.heading_rad + new_heading) / 2.0
         self.pose.x += delta_center * cos(avg_heading)
         self.pose.y += delta_center * sin(avg_heading)
+        self.pose.x = clamp(self.pose.x, PLAYABLE_MIN_X_IN, PLAYABLE_MAX_X_IN)
+        self.pose.y = clamp(self.pose.y, PLAYABLE_MIN_Y_IN, PLAYABLE_MAX_Y_IN)
         self.pose.heading_rad = new_heading
         return self.pose
 
@@ -136,7 +150,11 @@ class FrontBackMecanumOdometry:
         self._last_back_count = None  # type: Optional[int]
 
     def reset(self, x: float = 0.0, y: float = 0.0, heading_deg: float = 0.0) -> None:
-        self.pose = Pose2D(x=x, y=y, heading_rad=wrap_heading_radians(radians(heading_deg)))
+        self.pose = Pose2D(
+            x=clamp(x, PLAYABLE_MIN_X_IN, PLAYABLE_MAX_X_IN),
+            y=clamp(y, PLAYABLE_MIN_Y_IN, PLAYABLE_MAX_Y_IN),
+            heading_rad=wrap_heading_radians(radians(heading_deg)),
+        )
         self.motion = FrontBackMotionState()
         self._last_front_count = None
         self._last_back_count = None
@@ -167,6 +185,8 @@ class FrontBackMecanumOdometry:
         # Rotate robot-frame translation into field-frame translation.
         self.pose.x += robot_forward * cos(heading) - robot_strafe * sin(heading)
         self.pose.y += robot_forward * sin(heading) + robot_strafe * cos(heading)
+        self.pose.x = clamp(self.pose.x, PLAYABLE_MIN_X_IN, PLAYABLE_MAX_X_IN)
+        self.pose.y = clamp(self.pose.y, PLAYABLE_MIN_Y_IN, PLAYABLE_MAX_Y_IN)
         self.motion.front_distance_in = front_distance_in
         self.motion.back_distance_in = back_distance_in
         return self.pose
@@ -260,4 +280,6 @@ class FrontBackMecanumOdometry:
             self.pose.y += correction_step_in
         elif left_edge_detected and right_edge_detected:
             self.pose.x -= correction_step_in
+        self.pose.x = clamp(self.pose.x, PLAYABLE_MIN_X_IN, PLAYABLE_MAX_X_IN)
+        self.pose.y = clamp(self.pose.y, PLAYABLE_MIN_Y_IN, PLAYABLE_MAX_Y_IN)
         return self.pose
