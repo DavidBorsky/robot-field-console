@@ -3,8 +3,9 @@ import json
 import threading
 from datetime import datetime, timezone
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from socketserver import ThreadingMixIn
 from typing import Any, Dict, Optional, Type
 
 from constants import DEFAULT_POWER_SCALE, DEFAULT_SERIAL_PORT_LINUX
@@ -229,6 +230,10 @@ def build_handler(
     return RobotRequestHandler
 
 
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Serve live robot state to the field UI.")
     parser.add_argument("--host", default="0.0.0.0", help="Host interface to bind")
@@ -253,7 +258,7 @@ def main() -> None:
         default_serial_port=args.serial_port,
         default_baud=args.baud,
     )
-    server = ThreadingHTTPServer((args.host, args.port), handler)
+    server = ThreadedHTTPServer((args.host, args.port), handler)
     print("Robot server listening on http://{}:{}".format(args.host, args.port))
     server.serve_forever()
 
