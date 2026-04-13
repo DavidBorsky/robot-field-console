@@ -44,6 +44,8 @@ The browser UI plans paths, and `robot-paths.json` is the shared format that bot
   This can provide target offsets, object detections, or tag-based alignment data.
   It is currently modeled as a Logitech-camera-friendly abstraction with a
   simulated mode for development.
+  The Pi HTTP server currently owns the live USB camera handle so the browser
+  UI can display the feed without competing with the path runner.
 
 - `ir_sensor.py`
   Left and right IR edge sensors.

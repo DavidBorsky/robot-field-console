@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from camera import SimulatedCamera, VisionTarget, create_camera
+from camera import SimulatedCamera, VisionTarget
 from connection import create_connection
 from constants import (
     DEFAULT_CONTROL_DT_S,
@@ -127,7 +127,10 @@ def run_path(
     follower = create_follower(follower_controller)
     follower.load_path([PathPoint(x=waypoint.x, y=waypoint.y) for waypoint in waypoints])
     edge_safety = EdgeSafetyController()
-    camera = create_camera(simulate=simulate_connection)
+    # The Pi HTTP server owns the real USB camera feed.
+    # Keep the runner on a simulated vision target path for now so it does not
+    # fight the UI camera stream for the device handle during live runs.
+    camera = SimulatedCamera()
     gyro = create_gyro(simulate=simulate_connection)
     connection = create_connection(
         simulate=simulate_connection,
@@ -326,8 +329,8 @@ def run_path(
                 break
 
         print(
-            "\nNext hardware step: replace the simulated IR/camera events with real "
-            "Arduino sensor packets and real Logitech camera detections."
+            "\nNext hardware step: replace the simulated IR events with real "
+            "Arduino sensor packets and integrate live vision detections from the Pi camera feed."
         )
     finally:
         connection.stop()
