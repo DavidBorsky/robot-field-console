@@ -119,6 +119,22 @@ than repeatedly commanding the same stationary pose.
 During a run, the server publishes live pose updates so the field UI can show
 the robot marker moving in real time.
 
+## Live server
+
+Default Pi robot server address:
+
+- `http://raspberrypi.local:8765/`
+
+Useful endpoints:
+
+- `http://raspberrypi.local:8765/health`
+- `http://raspberrypi.local:8765/robot-state`
+
+If `raspberrypi.local` does not resolve on your network, replace it with the
+Pi's local IP address, for example:
+
+- `http://192.168.1.42:8765/`
+
 ## Encoder note
 
 The Python and Arduino code now assume front/back encoder telemetry will be sent
