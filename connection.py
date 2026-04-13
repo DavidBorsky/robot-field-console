@@ -10,7 +10,13 @@ from __future__ import annotations
 import argparse
 import time
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Optional
+
+try:
+    from typing import Protocol
+except ImportError:  # pragma: no cover - Python < 3.8 fallback
+    class Protocol(object):
+        pass
 
 from constants import (
     ENCODER_COUNTS_PER_OUTPUT_REV,
@@ -44,15 +50,15 @@ class EncoderSnapshot:
 
 @dataclass(frozen=True)
 class RobotTelemetry:
-    front_motor_temp_c: float | None = None
-    back_motor_temp_c: float | None = None
-    battery_voltage: float | None = None
+    front_motor_temp_c: Optional[float] = None
+    back_motor_temp_c: Optional[float] = None
+    battery_voltage: Optional[float] = None
 
 
 @dataclass(frozen=True)
 class SensorSnapshot:
     ir: IRSensorState = IRSensorState()
-    heading_deg: float | None = None
+    heading_deg: Optional[float] = None
     encoders: EncoderSnapshot = EncoderSnapshot()
     telemetry: RobotTelemetry = RobotTelemetry()
 
@@ -164,7 +170,7 @@ class SerialArduinoConnection:
             raise RuntimeError("SerialArduinoConnection is not connected")
         return self.serial_handle
 
-    def _parse_sensor_packet(self, line: str) -> SensorSnapshot | None:
+    def _parse_sensor_packet(self, line: str) -> Optional[SensorSnapshot]:
         if not line.startswith("S,"):
             return None
 
@@ -206,7 +212,7 @@ class SerialArduinoConnection:
             ),
         )
 
-    def _drain_input(self, duration_s: float | None = None) -> None:
+    def _drain_input(self, duration_s: Optional[float] = None) -> None:
         handle = self._require_handle()
         deadline = None if duration_s is None else time.monotonic() + duration_s
         while True:

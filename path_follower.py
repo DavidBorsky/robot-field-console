@@ -10,7 +10,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import acos, sqrt
-from typing import Protocol
+from typing import Dict, List, Optional, Set, Tuple
+
+try:
+    from typing import Protocol
+except ImportError:  # pragma: no cover - Python < 3.8 fallback
+    class Protocol(object):
+        pass
 
 from constants import (
     DEFAULT_CONTROL_DT_S,
@@ -47,10 +53,10 @@ class ClosestPathSample:
 
 
 class FollowerController(Protocol):
-    def load_path(self, points: list[PathPoint]) -> None: ...
+    def load_path(self, points: List[PathPoint]) -> None: ...
     def reset(self) -> None: ...
     def is_finished(self, pose: Pose2D) -> bool: ...
-    def update(self, pose: Pose2D, dt: float = DEFAULT_CONTROL_DT_S) -> tuple[MotorCommand, dict]: ...
+    def update(self, pose: Pose2D, dt: float = DEFAULT_CONTROL_DT_S) -> Tuple[MotorCommand, Dict[str, float]]: ...
 
 
 class PurePursuitFollower:
@@ -84,13 +90,13 @@ class PurePursuitFollower:
         self.corner_stop_distance_in = corner_stop_distance_in
         self.stop_brake_distance_in = stop_brake_distance_in
         self.drive_controller = DriveController()
-        self.path: list[PathPoint] = []
+        self.path = []  # type: List[PathPoint]
         self.current_index = 0
         self.last_speed_scale = min_speed
         self.corner_stop_remaining_s = 0.0
-        self.completed_corner_stops: set[int] = set()
+        self.completed_corner_stops = set()  # type: Set[int]
 
-    def load_path(self, points: list[PathPoint]) -> None:
+    def load_path(self, points: List[PathPoint]) -> None:
         self.path = points
         self.reset()
 
@@ -146,7 +152,7 @@ class PurePursuitFollower:
                 distance=pose.distance_to(only.x, only.y),
             )
 
-        best: ClosestPathSample | None = None
+        best = None  # type: Optional[ClosestPathSample]
         for i in range(len(self.path) - 1):
             sample = self._closest_point_on_segment(pose, self.path[i], self.path[i + 1], i)
             if best is None or sample.distance < best.distance:
@@ -164,7 +170,7 @@ class PurePursuitFollower:
         pose: Pose2D,
         start: PathPoint,
         end: PathPoint,
-    ) -> list[tuple[float, PathPoint]]:
+    ) -> List[Tuple[float, PathPoint]]:
         dx = end.x - start.x
         dy = end.y - start.y
         fx = start.x - pose.x
@@ -182,14 +188,14 @@ class PurePursuitFollower:
             return []
 
         root = sqrt(discriminant)
-        hits: list[tuple[float, PathPoint]] = []
+        hits = []  # type: List[Tuple[float, PathPoint]]
         for sign in (-1.0, 1.0):
             t = (-b + sign * root) / (2.0 * a)
             if 0.0 <= t <= 1.0:
                 hits.append((t, PathPoint(x=start.x + t * dx, y=start.y + t * dy)))
         return hits
 
-    def _select_lookahead_point(self, pose: Pose2D) -> tuple[PathPoint, ClosestPathSample]:
+    def _select_lookahead_point(self, pose: Pose2D) -> Tuple[PathPoint, ClosestPathSample]:
         if not self.path:
             raise ValueError("Cannot select a lookahead point from an empty path")
 
@@ -262,7 +268,7 @@ class PurePursuitFollower:
         target: PathPoint,
         closest: ClosestPathSample,
         dt: float,
-    ) -> tuple[float, dict]:
+    ) -> Tuple[float, Dict[str, float]]:
         remaining = pose.distance_to(self.path[-1].x, self.path[-1].y)
         target_dist = pose.distance_to(target.x, target.y)
         turn_severity = self._segment_turn_severity(closest)
@@ -327,7 +333,7 @@ class PurePursuitFollower:
         self,
         pose: Pose2D,
         dt: float = DEFAULT_CONTROL_DT_S,
-    ) -> tuple[MotorCommand, dict]:
+    ) -> Tuple[MotorCommand, Dict[str, float]]:
         if not self.path:
             return MotorCommand(0.0, 0.0), {"finished": True, "reason": "empty path"}
 
@@ -415,9 +421,9 @@ class RamseteFollower:
     """
 
     def __init__(self):
-        self.path: list[PathPoint] = []
+        self.path = []  # type: List[PathPoint]
 
-    def load_path(self, points: list[PathPoint]) -> None:
+    def load_path(self, points: List[PathPoint]) -> None:
         self.path = points
 
     def reset(self) -> None:
@@ -433,7 +439,7 @@ class RamseteFollower:
         self,
         pose: Pose2D,
         dt: float = DEFAULT_CONTROL_DT_S,
-    ) -> tuple[MotorCommand, dict]:
+    ) -> Tuple[MotorCommand, Dict[str, float]]:
         raise NotImplementedError(
             "RamseteFollower is intentionally reserved for later once hardware "
             "kinematics and velocity feedback are finalized."

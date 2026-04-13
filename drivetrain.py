@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import atan2, cos, sin
+from typing import Dict, Optional, Tuple
 
 from constants import (
     DEFAULT_CONTROL_DT_S,
@@ -91,9 +92,9 @@ class PathFollower:
         pose: Pose2D,
         target_x: float,
         target_y: float,
-        target_heading_rad: float | None = None,
+        target_heading_rad: Optional[float] = None,
         dt: float = DEFAULT_CONTROL_DT_S,
-    ) -> tuple[MotorCommand, dict]:
+    ) -> Tuple[MotorCommand, Dict[str, float]]:
         dx = target_x - pose.x
         dy = target_y - pose.y
 

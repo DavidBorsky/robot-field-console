@@ -4,7 +4,7 @@ import argparse
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable, Dict, List, Optional
 
 from camera import SimulatedCamera, VisionTarget, create_camera
 from connection import create_connection
@@ -40,12 +40,12 @@ def load_robot_paths(path_file: Path = DEFAULT_PATH_FILE) -> dict:
     return payload
 
 
-def get_waypoints(payload: dict, mode: str = "auton") -> list[Waypoint]:
+def get_waypoints(payload: Dict[str, Any], mode: str = "auton") -> List[Waypoint]:
     raw_points = payload.get("paths", {}).get(mode, [])
     return [Waypoint(float(x), float(y)) for x, y in raw_points]
 
 
-def emit_status(status_callback: Callable[[dict], None] | None, **payload) -> None:
+def emit_status(status_callback: Optional[Callable[[Dict[str, Any]], None]], **payload: Any) -> None:
     if status_callback is None:
         return
     status_callback(payload)
@@ -66,7 +66,7 @@ def run_path(
     serial_port: str = "/dev/ttyACM0",
     serial_baud: int = 115200,
     power_scale: float = DEFAULT_POWER_SCALE,
-    status_callback: Callable[[dict], None] | None = None,
+    status_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> None:
     payload = load_robot_paths(path_file)
     waypoints = get_waypoints(payload, mode)

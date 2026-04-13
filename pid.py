@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import pi
+from typing import Optional
 
 from constants import MAX_INTEGRAL
 
@@ -22,9 +23,9 @@ class PIDConfig:
     kp: float
     ki: float = 0.0
     kd: float = 0.0
-    output_min: float | None = None
-    output_max: float | None = None
-    integral_limit: float | None = MAX_INTEGRAL
+    output_min: Optional[float] = None
+    output_max: Optional[float] = None
+    integral_limit: Optional[float] = MAX_INTEGRAL
     continuous: bool = False
     derivative_on_measurement: bool = True
 
@@ -38,8 +39,8 @@ class PIDController:
 
     def reset(self) -> None:
         self.integral = 0.0
-        self.previous_error: float | None = None
-        self.previous_measurement: float | None = None
+        self.previous_error = None  # type: Optional[float]
+        self.previous_measurement = None  # type: Optional[float]
 
     def _normalize_error(self, error: float) -> float:
         if self.config.continuous:

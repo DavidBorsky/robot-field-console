@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import atan2, cos, degrees, hypot, pi, radians, sin
+from typing import Optional
 
 from constants import (
     ENCODER_COUNTS_PER_OUTPUT_REV,
@@ -69,7 +70,7 @@ class DifferentialOdometry:
         self,
         left_distance_in: float,
         right_distance_in: float,
-        heading_deg: float | None = None,
+        heading_deg: Optional[float] = None,
     ) -> Pose2D:
         """Apply incremental wheel distances and update the stored pose.
 
@@ -124,8 +125,8 @@ class FrontBackMecanumOdometry:
         self.strafe_scale = strafe_scale
         self.wheel_circumference_in = wheel_circumference_in
         self.encoder_counts_per_rev = encoder_counts_per_rev
-        self._last_front_count: int | None = None
-        self._last_back_count: int | None = None
+        self._last_front_count = None  # type: Optional[int]
+        self._last_back_count = None  # type: Optional[int]
 
     def reset(self, x: float = 0.0, y: float = 0.0, heading_deg: float = 0.0) -> None:
         self.pose = Pose2D(x=x, y=y, heading_rad=wrap_heading_radians(radians(heading_deg)))
@@ -146,7 +147,7 @@ class FrontBackMecanumOdometry:
         self,
         front_distance_in: float,
         back_distance_in: float,
-        heading_deg: float | None = None,
+        heading_deg: Optional[float] = None,
     ) -> Pose2D:
         robot_forward = ((front_distance_in + back_distance_in) / 2.0) * self.forward_scale
         robot_strafe = ((front_distance_in - back_distance_in) / 2.0) * self.strafe_scale
@@ -168,11 +169,11 @@ class FrontBackMecanumOdometry:
         *,
         front_count: int,
         back_count: int,
-        front_rpm: float | None = None,
-        back_rpm: float | None = None,
-        dt: float | None = None,
-        heading_deg: float | None = None,
-        counts_per_rev: float | None = None,
+        front_rpm: Optional[float] = None,
+        back_rpm: Optional[float] = None,
+        dt: Optional[float] = None,
+        heading_deg: Optional[float] = None,
+        counts_per_rev: Optional[float] = None,
     ) -> Pose2D:
         counts_per_rev = counts_per_rev or self.encoder_counts_per_rev
 

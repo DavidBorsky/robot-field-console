@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, Optional, Type
 
 from constants import DEFAULT_POWER_SCALE, DEFAULT_SERIAL_PORT_LINUX
 from robot_runner import BASE_DIR, run_path
@@ -20,7 +20,7 @@ def utc_timestamp() -> str:
 
 @dataclass
 class RobotStateStore:
-    snapshot: dict[str, Any] = field(
+    snapshot: Dict[str, Any] = field(
         default_factory=lambda: {
             "connected": False,
             "running": False,
@@ -45,9 +45,9 @@ class RobotStateStore:
 
     def __post_init__(self) -> None:
         self._lock = threading.Lock()
-        self._run_thread: threading.Thread | None = None
+        self._run_thread = None  # type: Optional[threading.Thread]
 
-    def get(self) -> dict[str, Any]:
+    def get(self) -> Dict[str, Any]:
         with self._lock:
             return json.loads(json.dumps(self.snapshot))
 
@@ -64,7 +64,7 @@ class RobotStateStore:
         with self._lock:
             return bool(self.snapshot.get("running"))
 
-    def set_thread(self, thread: threading.Thread | None) -> None:
+    def set_thread(self, thread: Optional[threading.Thread]) -> None:
         with self._lock:
             self._run_thread = thread
 
@@ -74,11 +74,11 @@ def build_handler(
     default_path_file: Path,
     default_serial_port: str,
     default_baud: int,
-) -> type[BaseHTTPRequestHandler]:
+) -> Type[BaseHTTPRequestHandler]:
     class RobotRequestHandler(BaseHTTPRequestHandler):
         server_version = "WaypointRobotServer/0.1"
 
-        def _send_json(self, payload: dict[str, Any], status: int = HTTPStatus.OK) -> None:
+        def _send_json(self, payload: Dict[str, Any], status: int = HTTPStatus.OK) -> None:
             raw = json.dumps(payload).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -89,7 +89,7 @@ def build_handler(
             self.end_headers()
             self.wfile.write(raw)
 
-        def _read_json_body(self) -> dict[str, Any]:
+        def _read_json_body(self) -> Dict[str, Any]:
             content_length = int(self.headers.get("Content-Length", "0"))
             if content_length <= 0:
                 return {}
@@ -189,7 +189,7 @@ def build_handler(
                 power_scale=power_scale,
             )
 
-            def publish(update: dict[str, Any]) -> None:
+            def publish(update: Dict[str, Any]) -> None:
                 state_store.update(**update)
 
             def worker() -> None:
