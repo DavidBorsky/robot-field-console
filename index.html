@@ -541,7 +541,7 @@
       <div class="telemetryTitle">Robot Telemetry</div>
       <div class="telemetryRow"><span>Front Motor Temp:</span> <span id="frontMotorTemp">--</span></div>
       <div class="telemetryRow"><span>Back Motor Temp:</span> <span id="backMotorTemp">--</span></div>
-      <div class="telemetryRow"><span>Battery Voltage:</span> <span id="batteryVoltage">--</span></div>
+      <div class="telemetryRow"><span>Battery Percentage:</span> <span id="batteryPercentage">--</span></div>
     </div>
 
     <div class="robotApiControls">
@@ -580,7 +580,6 @@ const LOCAL_SIM_SLOWDOWN_DISTANCE_IN = 18;
 const LOCAL_SIM_CORNER_WINDOW_IN = 10;
 const LOCAL_SIM_CORNER_SLOWDOWN_GAIN = 1.2;
 const LOCAL_SIM_CORNER_STOP_DURATION_S = 0.5;
-const LOCAL_SIM_STOP_BRAKE_DISTANCE_IN = 16;
 const LOCAL_SIM_ACCEL_IN_PER_S2 = 6;
 const LOCAL_SIM_DECEL_IN_PER_S2 = 10;
 
@@ -622,7 +621,7 @@ const runBtn = document.getElementById("runBtn");
 const resetBtn = document.getElementById("resetBtn");
 const frontMotorTemp = document.getElementById("frontMotorTemp");
 const backMotorTemp = document.getElementById("backMotorTemp");
-const batteryVoltage = document.getElementById("batteryVoltage");
+const batteryPercentage = document.getElementById("batteryPercentage");
 
 let controlMode = "auton";
 
@@ -762,6 +761,21 @@ function setRobotStatus(message, isError = false) {
 function formatTelemetryValue(value, suffix = "") {
   if (value == null || Number.isNaN(Number(value))) return "--";
   return `${Number(value).toFixed(1)}${suffix}`;
+}
+
+function estimateBatteryPercentage(telemetry = {}) {
+  if (telemetry.battery_percentage != null && !Number.isNaN(Number(telemetry.battery_percentage))) {
+    return clamp(Number(telemetry.battery_percentage), 0, 100);
+  }
+
+  if (telemetry.battery_voltage == null || Number.isNaN(Number(telemetry.battery_voltage))) {
+    return null;
+  }
+
+  const voltage = Number(telemetry.battery_voltage);
+  const emptyVoltage = 10.5;
+  const fullVoltage = 12.6;
+  return clamp(((voltage - emptyVoltage) / (fullVoltage - emptyVoltage)) * 100, 0, 100);
 }
 
 function formatSeconds(seconds) {
@@ -921,7 +935,8 @@ function updateRobotCoords() {
 function updateTelemetry(telemetry = {}) {
   frontMotorTemp.textContent = formatTelemetryValue(telemetry.front_motor_temp_c, " C");
   backMotorTemp.textContent = formatTelemetryValue(telemetry.back_motor_temp_c, " C");
-  batteryVoltage.textContent = formatTelemetryValue(telemetry.battery_voltage, " V");
+  const percentage = estimateBatteryPercentage(telemetry);
+  batteryPercentage.textContent = percentage == null ? "--" : `${Math.round(percentage)}%`;
 }
 
 function clearRobotTrail() {
@@ -1205,6 +1220,14 @@ function polylinePathD(pointsPx) {
   return pointsPx.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
 }
 
+function segmentAxis(start, end) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  if (Math.abs(dx) >= Math.abs(dy) && Math.abs(dx) > 1e-6) return "horizontal";
+  if (Math.abs(dy) > 1e-6) return "vertical";
+  return null;
+}
+
 function buildDrivePathPoints(pointsIn) {
   if (pointsIn.length === 0) return [];
 
@@ -1212,16 +1235,35 @@ function buildDrivePathPoints(pointsIn) {
   for (let i = 0; i < pointsIn.length - 1; i++) {
     const start = pointsIn[i];
     const end = pointsIn[i + 1];
-    const corner = { x: end.x, y: start.y };
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
 
-    if (corner.x !== start.x || corner.y !== start.y) {
-      routed.push(corner);
-    }
-    if (end.x !== corner.x || end.y !== corner.y) {
+    if (Math.abs(dx) < 1e-6 || Math.abs(dy) < 1e-6) {
       routed.push({ x: end.x, y: end.y });
+      continue;
     }
+
+    const prevAxis =
+      routed.length >= 2
+        ? segmentAxis(routed[routed.length - 2], routed[routed.length - 1])
+        : null;
+    const corner = prevAxis === "horizontal"
+      ? { x: start.x, y: end.y }
+      : { x: end.x, y: start.y };
+
+    routed.push(corner);
+    routed.push({ x: end.x, y: end.y });
   }
-  return routed;
+
+  const deduped = [];
+  for (const point of routed) {
+    const last = deduped[deduped.length - 1];
+    if (last && Math.abs(last.x - point.x) < 1e-6 && Math.abs(last.y - point.y) < 1e-6) {
+      continue;
+    }
+    deduped.push(point);
+  }
+  return deduped;
 }
 
 function sampleDrivePath(pointsIn, samplesPerSeg = SAMPLES_PER_SEG) {
@@ -1232,7 +1274,8 @@ function sampleDrivePath(pointsIn, samplesPerSeg = SAMPLES_PER_SEG) {
   for (let i = 0; i < drivePoints.length - 1; i++) {
     const start = drivePoints[i];
     const end = drivePoints[i + 1];
-    for (let s = 0; s <= samplesPerSeg; s++) {
+    const startSample = i === 0 ? 0 : 1;
+    for (let s = startSample; s <= samplesPerSeg; s++) {
       const t = s / samplesPerSeg;
       const inPt = {
         x: start.x + (end.x - start.x) * t,
@@ -1281,7 +1324,7 @@ function decorateSamples(samples) {
   });
 }
 
-function computeDesiredSpeed(samples, index, currentDistance = null, completedStops = null) {
+function computeDesiredSpeed(samples, index, currentDistance = null) {
   if (!samples.length) return LOCAL_SIM_MIN_SPEED_IN_PER_S;
 
   const sample = samples[index];
@@ -1289,20 +1332,7 @@ function computeDesiredSpeed(samples, index, currentDistance = null, completedSt
   const travelledDistance = currentDistance == null ? sample.cumulativeDistance : currentDistance;
   const remainingDistance = Math.max(0, totalDistance - travelledDistance);
   const longRunScale = clamp(totalDistance / LOCAL_SIM_LONG_RUN_DISTANCE_IN, 0.45, 1);
-  const stopDistances = extractCornerStopDistances(samples);
-  const nextStopDistance = distanceToNextStop(
-    travelledDistance,
-    totalDistance,
-    stopDistances,
-    completedStops ?? new Set()
-  );
   const endScale = clamp(remainingDistance / LOCAL_SIM_SLOWDOWN_DISTANCE_IN, 0.18, 1);
-  const normalizedStopDistance = clamp(
-    nextStopDistance / LOCAL_SIM_STOP_BRAKE_DISTANCE_IN,
-    0,
-    1
-  );
-  const stopScale = clamp(normalizedStopDistance * normalizedStopDistance, 0.02, 1);
 
   let cornerScale = 1;
   for (let i = index; i < samples.length - 1; i += 1) {
@@ -1316,7 +1346,7 @@ function computeDesiredSpeed(samples, index, currentDistance = null, completedSt
     }
   }
 
-  const speedScale = clamp(Math.min(longRunScale, endScale, stopScale, cornerScale), 0.08, 1);
+  const speedScale = clamp(Math.min(longRunScale, endScale, cornerScale), 0.08, 1);
   return LOCAL_SIM_MIN_SPEED_IN_PER_S
     + (LOCAL_SIM_MAX_SPEED_IN_PER_S - LOCAL_SIM_MIN_SPEED_IN_PER_S) * speedScale;
 }
@@ -1333,34 +1363,51 @@ function estimateCourseTimeForPoints(points) {
   const decorated = decorateSamples(sampleDrivePath(points, SAMPLES_PER_SEG));
   if (decorated.length < 2) return 0;
 
-  const totalDistance = decorated[decorated.length - 1].cumulativeDistance;
-  const stopDistances = extractCornerStopDistances(decorated);
-  const completedStops = new Set();
+  return estimateRemainingTime(decorated, 0, 0, new Set());
+}
+
+function extractCornerStopDistances(samples) {
+  const stopDistances = [];
+  for (let i = 1; i < samples.length - 1; i += 1) {
+    if (samples[i].turnSeverity <= 0.08) continue;
+    if (stopDistances.length > 0 && Math.abs(stopDistances[stopDistances.length - 1] - samples[i].cumulativeDistance) < 0.25) {
+      continue;
+    }
+    stopDistances.push(samples[i].cumulativeDistance);
+  }
+  return stopDistances;
+}
+
+function estimateRemainingTime(samples, travelledDistance = 0, currentSpeed = 0, completedStops = new Set()) {
+  if (samples.length < 2) return 0;
+
+  const totalDistance = samples[samples.length - 1].cumulativeDistance;
+  const stopDistances = extractCornerStopDistances(samples);
   const dt = 0.02;
-  let travelledDistance = 0;
-  let speed = 0;
+  let simulatedDistance = travelledDistance;
+  let speed = currentSpeed;
   let totalSeconds = 0;
   let safetySteps = 0;
 
-  while (travelledDistance < totalDistance && safetySteps < 20000) {
+  while (simulatedDistance < totalDistance && safetySteps < 20000) {
     safetySteps += 1;
     let sampleIndex = 0;
     while (
-      sampleIndex + 1 < decorated.length &&
-      decorated[sampleIndex + 1].cumulativeDistance < travelledDistance
+      sampleIndex + 1 < samples.length &&
+      samples[sampleIndex + 1].cumulativeDistance < simulatedDistance
     ) {
       sampleIndex += 1;
     }
 
-    const targetSpeed = computeDesiredSpeed(decorated, sampleIndex, travelledDistance, completedStops);
+    const targetSpeed = computeDesiredSpeed(samples, sampleIndex, simulatedDistance);
     speed = rampLocalSpeed(speed, targetSpeed, dt);
-    const nextDistance = Math.min(travelledDistance + speed * dt, totalDistance);
+    const nextDistance = Math.min(simulatedDistance + speed * dt, totalDistance);
 
     let stoppedAtCorner = false;
     for (const stopDistance of stopDistances) {
       if (completedStops.has(stopDistance)) continue;
-      if (stopDistance <= travelledDistance || stopDistance > nextDistance) continue;
-      travelledDistance = stopDistance;
+      if (stopDistance <= simulatedDistance || stopDistance > nextDistance) continue;
+      simulatedDistance = stopDistance;
       completedStops.add(stopDistance);
       speed = 0;
       totalSeconds += LOCAL_SIM_CORNER_STOP_DURATION_S;
@@ -1372,7 +1419,7 @@ function estimateCourseTimeForPoints(points) {
       continue;
     }
 
-    travelledDistance = nextDistance;
+    simulatedDistance = nextDistance;
     totalSeconds += dt;
   }
   return totalSeconds;
@@ -1380,25 +1427,6 @@ function estimateCourseTimeForPoints(points) {
 
 function updateCourseEstimate() {
   courseTimeEl.textContent = formatSeconds(estimateCourseTimeForPoints(getPts()));
-}
-
-function extractCornerStopDistances(samples) {
-  const stopDistances = [];
-  for (let i = 1; i < samples.length; i += 1) {
-    if (samples[i].segIndex === samples[i - 1].segIndex) continue;
-    stopDistances.push(samples[i].cumulativeDistance);
-  }
-  return stopDistances;
-}
-
-function distanceToNextStop(distanceTravelled, totalDistance, stopDistances, completedStops) {
-  let best = totalDistance - distanceTravelled;
-  for (const stopDistance of stopDistances) {
-    if (completedStops.has(stopDistance)) continue;
-    if (stopDistance < distanceTravelled) continue;
-    best = Math.min(best, stopDistance - distanceTravelled);
-  }
-  return Math.max(0, best);
 }
 
 function interpolatePoseAtDistance(samples, distanceTravelled) {
@@ -1492,8 +1520,14 @@ function runLocalSimulationFrame(timestamp) {
     updateRobotMarker();
     updateRobotCoords();
     const remaining = Math.max(0, localSimulation.totalDistance - localSimulation.distanceTravelled);
+    const timeLeft = estimateRemainingTime(
+      localSimulation.samples,
+      localSimulation.distanceTravelled,
+      localSimulation.currentSpeed,
+      new Set(localSimulation.completedCornerStops)
+    );
     setRobotStatus(
-      `Local simulation running | remaining ${remaining.toFixed(1)}" | velocity ${formatVelocity(robotVelocityInPerS)}`
+      `Local simulation running | remaining ${remaining.toFixed(1)}" | time left ${formatSeconds(timeLeft)}`
     );
     localSimulation.frameId = requestAnimationFrame(runLocalSimulationFrame);
     return;
@@ -1510,8 +1544,7 @@ function runLocalSimulationFrame(timestamp) {
   const targetSpeed = computeDesiredSpeed(
     localSimulation.samples,
     sampleIndex,
-    localSimulation.distanceTravelled,
-    localSimulation.completedCornerStops
+    localSimulation.distanceTravelled
   );
   const speed = rampLocalSpeed(localSimulation.currentSpeed, targetSpeed, dt);
   localSimulation.currentSpeed = speed;
@@ -1538,8 +1571,14 @@ function runLocalSimulationFrame(timestamp) {
     updateRobotCoords();
     updateRobotMarker();
     const remaining = Math.max(0, localSimulation.totalDistance - localSimulation.distanceTravelled);
+    const timeLeft = estimateRemainingTime(
+      localSimulation.samples,
+      localSimulation.distanceTravelled,
+      localSimulation.currentSpeed,
+      new Set(localSimulation.completedCornerStops)
+    );
     setRobotStatus(
-      `Local simulation running | remaining ${remaining.toFixed(1)}" | velocity ${formatVelocity(robotVelocityInPerS)}`
+      `Local simulation running | remaining ${remaining.toFixed(1)}" | time left ${formatSeconds(timeLeft)}`
     );
     localSimulation.frameId = requestAnimationFrame(runLocalSimulationFrame);
     return;
@@ -1559,8 +1598,13 @@ function runLocalSimulationFrame(timestamp) {
   updateRobotMarker();
 
   const remaining = Math.max(0, localSimulation.totalDistance - localSimulation.distanceTravelled);
+  const timeLeft = estimateRemainingTime(
+    localSimulation.samples,
+    localSimulation.distanceTravelled,
+    localSimulation.currentSpeed
+  );
   setRobotStatus(
-    `Local simulation running | remaining ${remaining.toFixed(1)}" | velocity ${formatVelocity(robotVelocityInPerS)}`
+    `Local simulation running | remaining ${remaining.toFixed(1)}" | time left ${formatSeconds(timeLeft)}`
   );
 
   if (localSimulation.distanceTravelled >= localSimulation.totalDistance) {
