@@ -954,9 +954,13 @@ function updateRobotCoords() {
   robotMotorRpm.textContent = formatRpm(robotMotorRpmEstimate);
 }
 
+function celsiusToFahrenheit(value) {
+  return (Number(value) * 9 / 5) + 32;
+}
+
 function updateTelemetry(telemetry = {}) {
-  frontMotorTemp.textContent = formatTelemetryValue(telemetry.front_motor_temp_c, " C");
-  backMotorTemp.textContent = formatTelemetryValue(telemetry.back_motor_temp_c, " C");
+  frontMotorTemp.textContent = formatTelemetryValue(celsiusToFahrenheit(telemetry.front_motor_temp_c), " F");
+  backMotorTemp.textContent = formatTelemetryValue(celsiusToFahrenheit(telemetry.back_motor_temp_c), " F");
   const percentage = estimateBatteryPercentage(telemetry);
   batteryPercentage.textContent = percentage == null ? "--" : `${Math.round(percentage)}%`;
 }
