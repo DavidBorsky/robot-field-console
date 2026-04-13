@@ -173,7 +173,6 @@ class FrontBackMecanumOdometry:
 
     def update_from_encoder_snapshot(
         self,
-        *,
         front_count: int,
         back_count: int,
         front_rpm: Optional[float] = None,
