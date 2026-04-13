@@ -245,7 +245,6 @@ class FrontBackMecanumOdometry:
 
     def apply_edge_correction(
         self,
-        *,
         left_edge_detected: bool = False,
         right_edge_detected: bool = False,
         correction_step_in: float = 0.5,
