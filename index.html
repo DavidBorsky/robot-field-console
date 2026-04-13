@@ -519,7 +519,8 @@
     <div class="cameraTitle">Camera View</div>
 
     <div class="cameraView" id="cameraView">
-      Camera feed will go here
+      <img id="cameraFeed" src="" alt="Camera feed" style="width: 100%; height: 100%; object-fit: contain; display: none;">
+      <div id="cameraPlaceholder" style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: white; font-size: 18px;">Loading camera...</div>
     </div>
 
     <div class="cameraCoords">
@@ -627,6 +628,9 @@ const frontMotorTemp = document.getElementById("frontMotorTemp");
 const backMotorTemp = document.getElementById("backMotorTemp");
 const batteryPercentage = document.getElementById("batteryPercentage");
 
+const cameraFeed = document.getElementById("cameraFeed");
+const cameraPlaceholder = document.getElementById("cameraPlaceholder");
+
 let controlMode = "auton";
 
 const modeData = {
@@ -671,6 +675,7 @@ let syncWriteInFlight = false;
 let syncQueuedAfterWrite = false;
 let robotApiBaseUrl = robotApiUrlInput.value.trim();
 let robotPollTimer = null;
+let cameraPollTimer = null;
 let robotPollInFlight = false;
 let robotApiConnected = false;
 let robotMoving = false;
@@ -1053,6 +1058,25 @@ function formatLiveTimeRemaining(remainingDistanceIn, velocityInPerS, isRunning)
 function stopRobotPolling() {
   if (robotPollTimer) clearInterval(robotPollTimer);
   robotPollTimer = null;
+  if (cameraPollTimer) clearInterval(cameraPollTimer);
+  cameraPollTimer = null;
+}
+
+async function updateCameraFeed() {
+  if (!robotApiBaseUrl) return;
+  
+  try {
+    // Add timestamp to prevent caching
+    const timestamp = Date.now();
+    cameraFeed.src = `${robotApiBaseUrl}/camera?t=${timestamp}`;
+    cameraFeed.style.display = "block";
+    cameraPlaceholder.style.display = "none";
+  } catch (err) {
+    console.warn("Camera feed error:", err);
+    cameraFeed.style.display = "none";
+    cameraPlaceholder.textContent = "Camera unavailable";
+    cameraPlaceholder.style.display = "flex";
+  }
 }
 
 async function pollRobotState() {
@@ -1087,6 +1111,9 @@ async function pollRobotState() {
     updateRobotMarker();
     updateTelemetry(payload.telemetry || {});
 
+    // Update camera feed
+    updateCameraFeed();
+
     const routeTimeRemaining = payload.running ? estimateLiveRouteTimeRemaining() : null;
     const liveTimeRemaining = routeTimeRemaining != null
       ? formatSeconds(routeTimeRemaining)
@@ -1118,6 +1145,11 @@ async function pollRobotState() {
     runBtn.textContent = "Run";
     resetBtn.disabled = false;
     setRobotStatus(`Robot API offline: ${err.message}`, true);
+    
+    // Hide camera feed on disconnect
+    cameraFeed.style.display = "none";
+    cameraPlaceholder.textContent = "Camera unavailable";
+    cameraPlaceholder.style.display = "flex";
   } finally {
     robotPollInFlight = false;
   }
@@ -1134,6 +1166,7 @@ function startRobotPolling() {
   setRobotStatus("Connecting to robot API...");
   pollRobotState();
   robotPollTimer = setInterval(pollRobotState, 350);
+  cameraPollTimer = setInterval(updateCameraFeed, 100); // Update camera every 100ms
 }
 
 connectRobotBtn.addEventListener("click", () => {

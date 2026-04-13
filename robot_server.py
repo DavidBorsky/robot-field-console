@@ -7,7 +7,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from socketserver import ThreadingMixIn
 from typing import Any, Dict, Optional, Type
+from urllib.parse import urlsplit
 
+from camera import create_camera
 from constants import DEFAULT_POWER_SCALE, DEFAULT_SERIAL_PORT_LINUX
 from robot_runner import BASE_DIR, run_path
 
@@ -65,6 +67,7 @@ class RobotStateStore:
 
 def build_handler(
     state_store: RobotStateStore,
+    camera: Any,
     default_path_file: Path,
     default_serial_port: str,
     default_baud: int,
@@ -96,13 +99,42 @@ def build_handler(
             self._send_json({"ok": True})
 
         def do_GET(self) -> None:  # noqa: N802
-            if self.path == "/health":
+            request_path = urlsplit(self.path).path
+            if request_path == "/health":
                 self._send_json({"ok": True, "status": "ready"})
                 return
-            if self.path == "/robot-state":
+            if request_path == "/robot-state":
                 snapshot = state_store.get()
                 snapshot["connected"] = True
                 self._send_json(snapshot)
+                return
+            if request_path == "/camera":
+                try:
+                    frame = camera.read_frame()
+                    if frame.frame_data is not None:
+                        import cv2
+                        # Encode frame as JPEG
+                        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 80]
+                        _, encoded_img = cv2.imencode('.jpg', frame.frame_data, encode_param)
+                        img_bytes = encoded_img.tobytes()
+                        
+                        self.send_response(HTTPStatus.OK)
+                        self.send_header("Content-Type", "image/jpeg")
+                        self.send_header("Content-Length", str(len(img_bytes)))
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.end_headers()
+                        self.wfile.write(img_bytes)
+                    else:
+                        # For simulated camera, return a placeholder
+                        img_bytes = b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a\x1f\x1e\x1d\x1a\x1c\x1c $.\' \",#\x1c\x1c(7),01444\x1f\'9=82<.342\xff\xc0\x00\x11\x08\x01\xe0\x02\x80\x03\x01\"\x00\x02\x11\x01\x03\x11\x01\xff\xc4\x00\x14\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x08\xff\xc4\x00\x14\x10\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xda\x00\x0c\x03\x01\x00\x02\x11\x03\x11\x00\x3f\x00\xaa\xaa\xaa\xaa\xff\xd9'
+                        self.send_response(HTTPStatus.OK)
+                        self.send_header("Content-Type", "image/jpeg")
+                        self.send_header("Content-Length", str(len(img_bytes)))
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.end_headers()
+                        self.wfile.write(img_bytes)
+                except Exception as e:
+                    self._send_json({"error": str(e)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
             self._send_json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
 
@@ -249,11 +281,16 @@ def main() -> None:
         help="Default serial port for the Arduino bridge",
     )
     parser.add_argument("--baud", type=int, default=115200, help="Default serial baud rate")
+    parser.add_argument("--simulate", action="store_true", help="Use simulated camera instead of hardware")
     args = parser.parse_args()
 
     state_store = RobotStateStore()
+    camera = create_camera(simulate=args.simulate)
+    camera.start()
+    
     handler = build_handler(
         state_store=state_store,
+        camera=camera,
         default_path_file=Path(args.path_file),
         default_serial_port=args.serial_port,
         default_baud=args.baud,

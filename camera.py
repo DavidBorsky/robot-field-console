@@ -13,11 +13,12 @@ except ImportError:  # pragma: no cover - Python < 3.8 fallback
 
 
 class CameraFrame:
-    def __init__(self, frame_id, width, height, source):
+    def __init__(self, frame_id, width, height, source, frame_data=None):
         self.frame_id = frame_id
         self.width = width
         self.height = height
         self.source = source
+        self.frame_data = frame_data
 
 
 class VisionTarget:
@@ -69,6 +70,7 @@ class SimulatedCamera:
             width=640,
             height=480,
             source="simulated-logitech",
+            frame_data=None  # No actual frame data for simulation
         )
 
     def get_target(self) -> VisionTarget:
@@ -76,24 +78,51 @@ class SimulatedCamera:
 
 
 class HardwareCamera:
-    """Placeholder for the real Logitech camera implementation."""
+    """Real Logitech camera implementation using OpenCV."""
 
     def __init__(self, index: int = 0):
         self.index = index
         self.running = False
+        self.cap = None
+        self.cv2 = None
 
     def start(self) -> None:
-        self.running = True
+        try:
+            import cv2
+            self.cv2 = cv2
+            self.cap = cv2.VideoCapture(self.index)
+            if not self.cap.isOpened():
+                raise RuntimeError("Could not open camera {}".format(self.index))
+            self.running = True
+        except ImportError:
+            raise RuntimeError("OpenCV not available. Install with: pip install opencv-python")
 
     def stop(self) -> None:
         self.running = False
+        if self.cap:
+            self.cap.release()
+            self.cap = None
+        self.cv2 = None
 
     def read_frame(self) -> CameraFrame:
-        if not self.running:
+        if not self.running or not self.cap or self.cv2 is None:
             raise RuntimeError("HardwareCamera is not running")
-        return CameraFrame(frame_id=0, width=640, height=480, source="camera-{}".format(self.index))
+
+        ret, frame = self.cap.read()
+        if not ret:
+            raise RuntimeError("Failed to read frame from camera")
+
+        height, width = frame.shape[:2]
+        return CameraFrame(
+            frame_id=int(self.cap.get(self.cv2.CAP_PROP_POS_FRAMES)),
+            width=width,
+            height=height,
+            source="camera-{}".format(self.index),
+            frame_data=frame
+        )
 
     def get_target(self) -> VisionTarget:
+        # TODO: Implement vision processing to detect targets
         return VisionTarget(visible=False)
 
 
