@@ -17,6 +17,10 @@ except ImportError:  # pragma: no cover - Python < 3.8 fallback
 
 from constants import (
     DEFAULT_CONTROL_DT_S,
+    PLAYABLE_MAX_X_IN,
+    PLAYABLE_MAX_Y_IN,
+    PLAYABLE_MIN_X_IN,
+    PLAYABLE_MIN_Y_IN,
     FOLLOWER_ACCEL_RAMP_PER_S,
     FOLLOWER_CORNER_SLOWDOWN_GAIN,
     FOLLOWER_CORNER_STOP_DISTANCE_IN,
@@ -37,8 +41,8 @@ def clamp(value: float, lo: float, hi: float) -> float:
 
 class PathPoint:
     def __init__(self, x, y):
-        self.x = x
-        self.y = y
+        self.x = clamp(x, PLAYABLE_MIN_X_IN, PLAYABLE_MAX_X_IN)
+        self.y = clamp(y, PLAYABLE_MIN_Y_IN, PLAYABLE_MAX_Y_IN)
 
 
 class ClosestPathSample:

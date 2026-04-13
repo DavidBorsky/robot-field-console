@@ -9,6 +9,10 @@ from math import pi
 FIELD_UNITS = "inches"
 FIELD_WIDTH_IN = 96.0
 FIELD_HEIGHT_IN = 60.0
+PLAYABLE_MIN_X_IN = 1.9
+PLAYABLE_MAX_X_IN = 94.0
+PLAYABLE_MIN_Y_IN = 1.8
+PLAYABLE_MAX_Y_IN = 58.0
 
 # Platform details known so far.
 DRIVE_BATTERY_VOLTAGE = 12.0

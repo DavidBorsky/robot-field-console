@@ -567,6 +567,10 @@
 ======================= */
 const FIELD_W_IN = 96;
 const FIELD_H_IN = 60;
+const PLAYABLE_MIN_X_IN = 1.9;
+const PLAYABLE_MAX_X_IN = 94;
+const PLAYABLE_MIN_Y_IN = 1.8;
+const PLAYABLE_MAX_Y_IN = 58;
 const PX_PER_IN = 10;
 
 const DRAG_THRESHOLD_PX = 5;
@@ -703,7 +707,14 @@ function applySnap(valueIn) {
 }
 
 function snapPoint(p) {
-  return { x: applySnap(p.x), y: applySnap(p.y) };
+  return clampToPlayableField({ x: applySnap(p.x), y: applySnap(p.y) });
+}
+
+function clampToPlayableField(p) {
+  return {
+    x: clamp(p.x, PLAYABLE_MIN_X_IN, PLAYABLE_MAX_X_IN),
+    y: clamp(p.y, PLAYABLE_MIN_Y_IN, PLAYABLE_MAX_Y_IN)
+  };
 }
 
 function inchesFromEvent(e) {
@@ -714,8 +725,8 @@ function inchesFromEvent(e) {
   let x = sx / PX_PER_IN;
   let y = FIELD_H_IN - (sy / PX_PER_IN);
 
-  x = clamp(x, 0, FIELD_W_IN);
-  y = clamp(y, 0, FIELD_H_IN);
+  x = clamp(x, PLAYABLE_MIN_X_IN, PLAYABLE_MAX_X_IN);
+  y = clamp(y, PLAYABLE_MIN_Y_IN, PLAYABLE_MAX_Y_IN);
   return snapPoint({ x, y });
 }
 
@@ -732,7 +743,8 @@ function distIn(a, b) {
 }
 
 function formatPoint(p) {
-  return [Number(p.x.toFixed(2)), Number(p.y.toFixed(2))];
+  const clamped = clampToPlayableField(p);
+  return [Number(clamped.x.toFixed(2)), Number(clamped.y.toFixed(2))];
 }
 
 function buildRobotPathsPayload() {
@@ -744,7 +756,11 @@ function buildRobotPathsPayload() {
     units: "inches",
     field: {
       width: FIELD_W_IN,
-      height: FIELD_H_IN
+      height: FIELD_H_IN,
+      playable_min_x: PLAYABLE_MIN_X_IN,
+      playable_max_x: PLAYABLE_MAX_X_IN,
+      playable_min_y: PLAYABLE_MIN_Y_IN,
+      playable_max_y: PLAYABLE_MAX_Y_IN
     }
   };
 }
@@ -877,8 +893,8 @@ function applyPathArray(mode, arr) {
 
   for (const item of arr) {
     if (!Array.isArray(item) || item.length < 2) continue;
-    const x = clamp(Number(item[0]), 0, FIELD_W_IN);
-    const y = clamp(Number(item[1]), 0, FIELD_H_IN);
+    const x = clamp(Number(item[0]), PLAYABLE_MIN_X_IN, PLAYABLE_MAX_X_IN);
+    const y = clamp(Number(item[1]), PLAYABLE_MIN_Y_IN, PLAYABLE_MAX_Y_IN);
     if (Number.isNaN(x) || Number.isNaN(y)) continue;
     pts.push(snapPoint({ x, y }));
   }
@@ -971,8 +987,8 @@ function appendRobotTrailPoint(point) {
 
 function updateRobotMarker() {
   const clampedPose = {
-    x: clamp(robotPose.x, 0, FIELD_W_IN),
-    y: clamp(robotPose.y, 0, FIELD_H_IN)
+    x: clamp(robotPose.x, PLAYABLE_MIN_X_IN, PLAYABLE_MAX_X_IN),
+    y: clamp(robotPose.y, PLAYABLE_MIN_Y_IN, PLAYABLE_MAX_Y_IN)
   };
   positionDot(robotMarker, clampedPose);
   const shouldShowMarker =
@@ -2216,8 +2232,8 @@ addTypedBtn.onclick = () => {
   const pts = getPts();
 
   if (viewMode) return;
-  const x = clamp(Number(xIn.value), 0, FIELD_W_IN);
-  const y = clamp(Number(yIn.value), 0, FIELD_H_IN);
+  const x = clamp(Number(xIn.value), PLAYABLE_MIN_X_IN, PLAYABLE_MAX_X_IN);
+  const y = clamp(Number(yIn.value), PLAYABLE_MIN_Y_IN, PLAYABLE_MAX_Y_IN);
 
   if (Number.isNaN(x) || Number.isNaN(y)) {
     alert("Enter valid X and Y.");
