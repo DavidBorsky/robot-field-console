@@ -424,6 +424,110 @@
     color: #444;
     line-height: 1.4;
   }
+
+  .debugToggleBtn {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid rgba(0,0,0,0.16);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.82);
+    color: #111;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    margin: 14px 0 0;
+  }
+
+  .debugDrawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: min(380px, 92vw);
+    height: 100vh;
+    padding: 20px 18px 24px;
+    box-sizing: border-box;
+    background: rgba(248,248,248,0.98);
+    border-left: 1px solid rgba(0,0,0,0.12);
+    box-shadow: -10px 0 28px rgba(0,0,0,0.16);
+    transform: translateX(100%);
+    transition: transform 0.22s ease;
+    z-index: 100;
+    overflow-y: auto;
+  }
+
+  .debugDrawer.open {
+    transform: translateX(0);
+  }
+
+  .debugBackdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.18);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+    z-index: 90;
+  }
+
+  .debugBackdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .debugHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .debugTitle {
+    font-size: 18px;
+    font-weight: 800;
+  }
+
+  .debugCloseBtn {
+    border: 1px solid rgba(0,0,0,0.16);
+    background: white;
+    border-radius: 10px;
+    padding: 8px 12px;
+    cursor: pointer;
+    margin: 0;
+  }
+
+  .debugSection {
+    padding: 12px 14px;
+    border: 1px solid rgba(0,0,0,0.1);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.84);
+    margin-top: 12px;
+  }
+
+  .debugSectionTitle {
+    font-size: 14px;
+    font-weight: 800;
+    margin-bottom: 8px;
+  }
+
+  .debugRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 0;
+    font-size: 13px;
+  }
+
+  .debugLabel {
+    color: #444;
+  }
+
+  .debugValue {
+    text-align: right;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #111;
+  }
 </style>
 </head>
 
@@ -559,8 +663,56 @@
     <div class="cameraHint">
       This space is reserved for your live robot camera, webcam feed, or vision output.
     </div>
+
+    <button id="debugToggleBtn" class="debugToggleBtn" type="button">Open Debug Panel</button>
   </div>
 </div>
+
+<div id="debugBackdrop" class="debugBackdrop" aria-hidden="true"></div>
+<aside id="debugDrawer" class="debugDrawer" aria-hidden="true">
+  <div class="debugHeader">
+    <div class="debugTitle">Debug Panel</div>
+    <button id="debugCloseBtn" class="debugCloseBtn" type="button">Close</button>
+  </div>
+
+  <div class="debugSection">
+    <div class="debugSectionTitle">Connection</div>
+    <div class="debugRow"><span class="debugLabel">API:</span> <span id="debugApiState" class="debugValue">offline</span></div>
+    <div class="debugRow"><span class="debugLabel">Mode:</span> <span id="debugConnectionMode" class="debugValue">serial</span></div>
+    <div class="debugRow"><span class="debugLabel">Runner status:</span> <span id="debugRunnerStatus" class="debugValue">idle</span></div>
+    <div class="debugRow"><span class="debugLabel">Detail:</span> <span id="debugDetail" class="debugValue">--</span></div>
+  </div>
+
+  <div class="debugSection">
+    <div class="debugSectionTitle">Command</div>
+    <div class="debugRow"><span class="debugLabel">Front output:</span> <span id="debugFrontCommand" class="debugValue">--</span></div>
+    <div class="debugRow"><span class="debugLabel">Back output:</span> <span id="debugBackCommand" class="debugValue">--</span></div>
+    <div class="debugRow"><span class="debugLabel">Power scale:</span> <span id="debugPowerScale" class="debugValue">--</span></div>
+  </div>
+
+  <div class="debugSection">
+    <div class="debugSectionTitle">Encoders</div>
+    <div class="debugRow"><span class="debugLabel">Front count:</span> <span id="debugFrontCount" class="debugValue">--</span></div>
+    <div class="debugRow"><span class="debugLabel">Back count:</span> <span id="debugBackCount" class="debugValue">--</span></div>
+    <div class="debugRow"><span class="debugLabel">Front RPM:</span> <span id="debugFrontRpm" class="debugValue">--</span></div>
+    <div class="debugRow"><span class="debugLabel">Back RPM:</span> <span id="debugBackRpm" class="debugValue">--</span></div>
+  </div>
+
+  <div class="debugSection">
+    <div class="debugSectionTitle">Odometry</div>
+    <div class="debugRow"><span class="debugLabel">Heading:</span> <span id="debugHeading" class="debugValue">--</span></div>
+    <div class="debugRow"><span class="debugLabel">Forward vel:</span> <span id="debugForwardVelocity" class="debugValue">--</span></div>
+    <div class="debugRow"><span class="debugLabel">Strafe vel:</span> <span id="debugStrafeVelocity" class="debugValue">--</span></div>
+    <div class="debugRow"><span class="debugLabel">Remaining:</span> <span id="debugRemainingDistance" class="debugValue">--</span></div>
+  </div>
+
+  <div class="debugSection">
+    <div class="debugSectionTitle">Safety</div>
+    <div class="debugRow"><span class="debugLabel">Corner pause:</span> <span id="debugCornerPause" class="debugValue">--</span></div>
+    <div class="debugRow"><span class="debugLabel">Edge override:</span> <span id="debugEdgeOverride" class="debugValue">--</span></div>
+    <div class="debugRow"><span class="debugLabel">Edge detail:</span> <span id="debugEdgeDetail" class="debugValue">--</span></div>
+  </div>
+</aside>
 
 <script>
 /* =======================
@@ -627,6 +779,28 @@ const resetBtn = document.getElementById("resetBtn");
 const frontMotorTemp = document.getElementById("frontMotorTemp");
 const backMotorTemp = document.getElementById("backMotorTemp");
 const batteryPercentage = document.getElementById("batteryPercentage");
+const debugToggleBtn = document.getElementById("debugToggleBtn");
+const debugDrawer = document.getElementById("debugDrawer");
+const debugBackdrop = document.getElementById("debugBackdrop");
+const debugCloseBtn = document.getElementById("debugCloseBtn");
+const debugApiState = document.getElementById("debugApiState");
+const debugConnectionMode = document.getElementById("debugConnectionMode");
+const debugRunnerStatus = document.getElementById("debugRunnerStatus");
+const debugDetail = document.getElementById("debugDetail");
+const debugFrontCommand = document.getElementById("debugFrontCommand");
+const debugBackCommand = document.getElementById("debugBackCommand");
+const debugPowerScale = document.getElementById("debugPowerScale");
+const debugFrontCount = document.getElementById("debugFrontCount");
+const debugBackCount = document.getElementById("debugBackCount");
+const debugFrontRpm = document.getElementById("debugFrontRpm");
+const debugBackRpm = document.getElementById("debugBackRpm");
+const debugHeading = document.getElementById("debugHeading");
+const debugForwardVelocity = document.getElementById("debugForwardVelocity");
+const debugStrafeVelocity = document.getElementById("debugStrafeVelocity");
+const debugRemainingDistance = document.getElementById("debugRemainingDistance");
+const debugCornerPause = document.getElementById("debugCornerPause");
+const debugEdgeOverride = document.getElementById("debugEdgeOverride");
+const debugEdgeDetail = document.getElementById("debugEdgeDetail");
 
 const cameraFeed = document.getElementById("cameraFeed");
 const cameraPlaceholder = document.getElementById("cameraPlaceholder");
@@ -814,6 +988,41 @@ function formatVelocity(value) {
 
 function formatRpm(value) {
   return `${value.toFixed(1)}`;
+}
+
+function formatDebugNumber(value, digits = 2, suffix = "") {
+  if (value == null || Number.isNaN(Number(value))) return "--";
+  return `${Number(value).toFixed(digits)}${suffix}`;
+}
+
+function setDebugDrawerOpen(isOpen) {
+  debugDrawer.classList.toggle("open", isOpen);
+  debugBackdrop.classList.toggle("open", isOpen);
+  debugDrawer.setAttribute("aria-hidden", isOpen ? "false" : "true");
+  debugBackdrop.setAttribute("aria-hidden", isOpen ? "false" : "true");
+}
+
+function updateDebugPanel(payload = null) {
+  debugApiState.textContent = robotApiConnected ? "online" : "offline";
+  debugConnectionMode.textContent = payload?.connection || robotConnectionMode.value || "--";
+  debugRunnerStatus.textContent = payload?.status || (localSimulation.active ? "simulated" : "idle");
+  debugDetail.textContent = payload?.detail || "--";
+  debugFrontCommand.textContent = formatDebugNumber(payload?.command?.front_output, 3);
+  debugBackCommand.textContent = formatDebugNumber(payload?.command?.back_output, 3);
+  debugPowerScale.textContent = formatDebugNumber(payload?.power_scale, 2);
+  debugFrontCount.textContent = payload?.front_encoder_count ?? "--";
+  debugBackCount.textContent = payload?.back_encoder_count ?? "--";
+  debugFrontRpm.textContent = formatDebugNumber(payload?.front_motor_rpm, 2);
+  debugBackRpm.textContent = formatDebugNumber(payload?.back_motor_rpm, 2);
+  debugHeading.textContent = formatDebugNumber(payload?.pose?.heading_deg ?? robotPose.heading, 2, " deg");
+  debugForwardVelocity.textContent = formatDebugNumber(payload?.forward_velocity_in_per_s, 2, " in/s");
+  debugStrafeVelocity.textContent = formatDebugNumber(payload?.strafe_velocity_in_per_s, 2, " in/s");
+  debugRemainingDistance.textContent = formatDebugNumber(payload?.remaining_distance, 2, " in");
+  debugCornerPause.textContent = payload?.paused_for_corner
+    ? formatDebugNumber(payload?.corner_stop_remaining_s, 2, " s")
+    : "inactive";
+  debugEdgeOverride.textContent = payload?.edge_override_active ? "active" : "inactive";
+  debugEdgeDetail.textContent = payload?.edge_detail || "--";
 }
 
 async function writeRobotPathsFileNow() {
@@ -1114,6 +1323,7 @@ async function pollRobotState() {
     updateRobotCoords();
     updateRobotMarker();
     updateTelemetry(payload.telemetry || {});
+    updateDebugPanel(payload);
 
     // Update camera feed
     updateCameraFeed();
@@ -1142,6 +1352,7 @@ async function pollRobotState() {
     runBtn.textContent = "Run";
     resetBtn.disabled = false;
     setRobotStatus(`Robot API offline: ${err.message}`, true);
+    updateDebugPanel(null);
     
     // Hide camera feed on disconnect
     cameraFeed.style.display = "none";
@@ -1168,6 +1379,18 @@ function startRobotPolling() {
 
 connectRobotBtn.addEventListener("click", () => {
   startRobotPolling();
+});
+
+debugToggleBtn.addEventListener("click", () => {
+  setDebugDrawerOpen(true);
+});
+
+debugCloseBtn.addEventListener("click", () => {
+  setDebugDrawerOpen(false);
+});
+
+debugBackdrop.addEventListener("click", () => {
+  setDebugDrawerOpen(false);
 });
 
 runBtn.addEventListener("click", async () => {
