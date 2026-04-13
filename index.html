@@ -1071,9 +1071,14 @@ async function pollRobotState() {
     updateRobotMarker();
     updateTelemetry(payload.telemetry || {});
 
-    const liveTimeRemaining = payload.remaining_distance != null
-      ? formatLiveTimeRemaining(payload.remaining_distance, robotVelocityInPerS, !!payload.running)
-      : formatLiveTimeRemaining(null, null, !!payload.running);
+    const routeTimeRemaining = payload.running ? estimateLiveRouteTimeRemaining() : null;
+    const liveTimeRemaining = routeTimeRemaining != null
+      ? formatSeconds(routeTimeRemaining)
+      : (
+        payload.remaining_distance != null
+          ? formatLiveTimeRemaining(payload.remaining_distance, robotVelocityInPerS, !!payload.running)
+          : formatLiveTimeRemaining(null, null, !!payload.running)
+      );
     const statusText = [
       `Status: ${payload.status ?? "unknown"}`,
       payload.running ? "running" : "not running",
@@ -1454,6 +1459,30 @@ function estimateRemainingTime(samples, travelledDistance = 0, currentSpeed = 0,
     totalSeconds += dt;
   }
   return totalSeconds;
+}
+
+function estimateLiveRouteTimeRemaining() {
+  const pts = getPts();
+  const decorated = decorateSamples(sampleDrivePath(pts, SAMPLES_PER_SEG));
+  if (decorated.length < 2) return null;
+
+  let closestIndex = 0;
+  let closestDistance = Infinity;
+  for (let i = 0; i < decorated.length; i += 1) {
+    const sample = decorated[i];
+    const distance = Math.hypot(sample.in.x - robotPose.x, sample.in.y - robotPose.y);
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestIndex = i;
+    }
+  }
+
+  return estimateRemainingTime(
+    decorated,
+    decorated[closestIndex].cumulativeDistance,
+    robotVelocityInPerS,
+    new Set()
+  );
 }
 
 function updateCourseEstimate() {
