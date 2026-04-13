@@ -678,13 +678,6 @@
       <button id="resetBtn" class="resetBtn" type="button">Reset Pose</button>
     </div>
 
-    <div class="telemetryPanel">
-      <div class="telemetryTitle">Robot Telemetry</div>
-      <div class="telemetryRow"><span>Front Motor Temp:</span> <span id="frontMotorTemp">--</span></div>
-      <div class="telemetryRow"><span>Back Motor Temp:</span> <span id="backMotorTemp">--</span></div>
-      <div class="telemetryRow"><span>Battery Percentage:</span> <span id="batteryPercentage">--</span></div>
-    </div>
-
     <div class="robotApiControls">
       <input id="robotApiUrl" type="text" value="http://raspberrypi.local:8765" placeholder="Robot API URL">
       <div class="robotApiRow">
@@ -722,6 +715,13 @@
       <div class="sensorStatusRow"><span class="debugLabel">Motor temp</span><span id="debugTempBadge" class="sensorBadge disconnected">Disconnected</span></div>
       <div class="sensorStatusRow"><span class="debugLabel">Battery sense</span><span id="debugBatteryBadge" class="sensorBadge disconnected">Disconnected</span></div>
     </div>
+  </div>
+
+  <div class="debugSection">
+    <div class="debugSectionTitle">Telemetry</div>
+    <div class="debugRow"><span class="debugLabel">Front motor temp:</span> <span id="frontMotorTemp" class="debugValue">--</span></div>
+    <div class="debugRow"><span class="debugLabel">Back motor temp:</span> <span id="backMotorTemp" class="debugValue">--</span></div>
+    <div class="debugRow"><span class="debugLabel">Battery percentage:</span> <span id="batteryPercentage" class="debugValue">--</span></div>
   </div>
 
   <div class="debugSection">
