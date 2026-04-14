@@ -1467,6 +1467,7 @@ connectRobotBtn.addEventListener("click", () => {
 
 debugToggleBtn.addEventListener("click", () => {
   setDebugDrawerOpen(true);
+  updateDebugPanel();
 });
 
 debugCloseBtn.addEventListener("click", () => {
@@ -1475,6 +1476,10 @@ debugCloseBtn.addEventListener("click", () => {
 
 debugBackdrop.addEventListener("click", () => {
   setDebugDrawerOpen(false);
+});
+
+robotConnectionMode.addEventListener("change", () => {
+  updateDebugPanel();
 });
 
 runBtn.addEventListener("click", async () => {
