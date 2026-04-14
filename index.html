@@ -789,6 +789,14 @@
             <div class="coordStatLabel">Motor RPM</div>
             <div id="robotMotorRpm" class="coordStatValue">0.0</div>
           </div>
+          <div class="coordStatCard">
+            <div class="coordStatLabel">Time Left</div>
+            <div id="robotTimeLeft" class="coordStatValue">--</div>
+          </div>
+          <div class="coordStatCard">
+            <div class="coordStatLabel">Distance Left</div>
+            <div id="robotDistanceLeft" class="coordStatValue">--</div>
+          </div>
         </div>
       </div>
     </div>
@@ -936,6 +944,8 @@ const robotX = document.getElementById("robotX");
 const robotY = document.getElementById("robotY");
 const robotVelocity = document.getElementById("robotVelocity");
 const robotMotorRpm = document.getElementById("robotMotorRpm");
+const robotTimeLeft = document.getElementById("robotTimeLeft");
+const robotDistanceLeft = document.getElementById("robotDistanceLeft");
 const robotMarker = document.getElementById("robotMarker");
 const robotApiUrlInput = document.getElementById("robotApiUrl");
 const robotConnectionMode = document.getElementById("robotConnectionMode");
@@ -1030,6 +1040,7 @@ let robotVelocityInPerS = 0;
 let robotMotorRpmEstimate = 0;
 let cameraFeedConnected = false;
 let liveTimeRemainingSeconds = null;
+let robotRemainingDistanceIn = null;
 let lastVelocityPose = null;
 let lastVelocityTimestampMs = null;
 let robotTrailPoints = [];
@@ -1420,6 +1431,8 @@ function updateRobotCoords() {
   robotY.textContent = robotPose.y.toFixed(2);
   robotVelocity.textContent = formatVelocity(robotVelocityInPerS);
   robotMotorRpm.textContent = formatRpm(robotMotorRpmEstimate);
+  robotTimeLeft.textContent = liveTimeRemainingSeconds == null ? "--" : formatSeconds(liveTimeRemainingSeconds);
+  robotDistanceLeft.textContent = robotRemainingDistanceIn == null ? "--" : `${robotRemainingDistanceIn.toFixed(1)} in`;
 }
 
 function updateTelemetry(telemetry = {}) {
@@ -1565,6 +1578,7 @@ async function pollRobotState() {
       robotPose.heading = Number(payload.pose.heading_deg ?? robotPose.heading) || 0;
     }
     robotMoving = !!payload.running;
+    robotRemainingDistanceIn = payload.remaining_distance == null ? null : Math.max(0, Number(payload.remaining_distance) || 0);
     if (payload.velocity_in_per_s != null) {
       setRobotVelocityFromModel(payload.velocity_in_per_s);
     } else {
@@ -1599,6 +1613,7 @@ async function pollRobotState() {
     robotApiConnected = false;
     robotMoving = false;
     liveTimeRemainingSeconds = null;
+    robotRemainingDistanceIn = null;
     setRobotVelocityFromModel(0);
     setRobotMotorRpm(0);
     updateRobotMarker();
@@ -1726,6 +1741,7 @@ resetBtn.addEventListener("click", async () => {
     robotPose.heading = 0;
     robotMoving = false;
     liveTimeRemainingSeconds = null;
+    robotRemainingDistanceIn = null;
     setRobotVelocityFromModel(0);
     setRobotMotorRpm(0);
     lastVelocityPose = { x: robotPose.x, y: robotPose.y };
@@ -1772,6 +1788,7 @@ resetBtn.addEventListener("click", async () => {
     robotPose.heading = Number(payload.pose?.heading_deg ?? 0);
     robotMoving = false;
     liveTimeRemainingSeconds = null;
+    robotRemainingDistanceIn = null;
     setRobotVelocityFromModel(0);
     setRobotMotorRpm(0);
     lastVelocityPose = { x: robotPose.x, y: robotPose.y };
@@ -2150,6 +2167,7 @@ function runLocalSimulationFrame(timestamp) {
     updateRobotCoords();
     updateDebugPanel();
     const remaining = Math.max(0, localSimulation.totalDistance - localSimulation.distanceTravelled);
+    robotRemainingDistanceIn = remaining;
     const timeLeft = localSimulation.pauseRemainingS + estimateRemainingTime(
       localSimulation.samples,
       localSimulation.distanceTravelled,
@@ -2202,6 +2220,7 @@ function runLocalSimulationFrame(timestamp) {
     updateRobotMarker();
     updateDebugPanel();
     const remaining = Math.max(0, localSimulation.totalDistance - localSimulation.distanceTravelled);
+    robotRemainingDistanceIn = remaining;
     const timeLeft = localSimulation.pauseRemainingS + estimateRemainingTime(
       localSimulation.samples,
       localSimulation.distanceTravelled,
@@ -2243,6 +2262,7 @@ function runLocalSimulationFrame(timestamp) {
   updateDebugPanel();
 
   const remaining = Math.max(0, localSimulation.totalDistance - localSimulation.distanceTravelled);
+  robotRemainingDistanceIn = remaining;
   const timeLeft = estimateRemainingTime(
     localSimulation.samples,
     localSimulation.distanceTravelled,
@@ -2277,6 +2297,7 @@ function startLocalSimulation() {
   localSimulation.totalDistance = decorated[decorated.length - 1].cumulativeDistance;
   localSimulation.currentSpeed = 0;
   localSimulation.distanceTravelled = 0;
+  robotRemainingDistanceIn = localSimulation.totalDistance;
   localSimulation.lastTimestamp = null;
   localSimulation.cornerStopDistances = extractCornerStopDistances(decorated);
   localSimulation.completedCornerStops = new Set();
