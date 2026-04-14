@@ -711,7 +711,7 @@
       <div class="sensorStatusRow"><span class="debugLabel">Serial</span><span id="debugSerialBadge" class="sensorBadge disconnected">Disconnected</span></div>
       <div class="sensorStatusRow"><span class="debugLabel">Front motor</span><span id="debugFrontMotorBadge" class="sensorBadge disconnected">Disconnected</span></div>
       <div class="sensorStatusRow"><span class="debugLabel">Back motor</span><span id="debugBackMotorBadge" class="sensorBadge disconnected">Disconnected</span></div>
-      <div class="sensorStatusRow"><span class="debugLabel">Battery %</span><span id="debugBatteryBadge" class="sensorBadge disconnected">Disconnected</span></div>
+      <div class="sensorStatusRow"><span class="debugLabel">Battery</span><span id="debugBatteryBadge" class="sensorBadge disconnected">Disconnected</span></div>
       <div class="sensorStatusRow"><span class="debugLabel">Left IR</span><span id="debugLeftIrBadge" class="sensorBadge disconnected">Disconnected</span></div>
       <div class="sensorStatusRow"><span class="debugLabel">Right IR</span><span id="debugRightIrBadge" class="sensorBadge disconnected">Disconnected</span></div>
       <div class="sensorStatusRow"><span class="debugLabel">Camera</span><span id="debugCameraBadge" class="sensorBadge disconnected">Disconnected</span></div>
@@ -1070,7 +1070,6 @@ function updateDebugPanel(payload = null) {
   const backMotorConnected = serialConnected && payload?.back_motor_rpm != null;
   const leftIrConnected = payload?.left_edge_detected != null;
   const rightIrConnected = payload?.right_edge_detected != null;
-  const batteryConnected = telemetry.battery_voltage != null;
 
   setSensorBadge(debugApiBadge, robotApiConnected);
   setSensorBadge(debugCameraBadge, cameraFeedConnected);
@@ -1079,7 +1078,6 @@ function updateDebugPanel(payload = null) {
   setSensorBadge(debugBackMotorBadge, backMotorConnected);
   setSensorBadge(debugLeftIrBadge, leftIrConnected);
   setSensorBadge(debugRightIrBadge, rightIrConnected);
-  setSensorBadge(debugBatteryBadge, batteryConnected);
 
   debugApiState.textContent = robotApiConnected ? "online" : "offline";
   debugConnectionMode.textContent = payload?.connection || robotConnectionMode.value || "--";
@@ -2629,3 +2627,5 @@ fullRender();
 
 </body>
 </html>
+  const batteryConnected = telemetry.battery_voltage != null;
+  setSensorBadge(debugBatteryBadge, batteryConnected);
