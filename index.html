@@ -279,10 +279,10 @@
 
   .sideCard {
     border: 1px solid rgba(0,0,0,0.12);
-    border-radius: 16px;
-    background: rgba(255,255,255,0.9);
-    padding: 14px;
-    box-shadow: 0 8px 18px rgba(0,0,0,0.04);
+    border-radius: 18px;
+    background: rgba(255,255,255,0.96);
+    padding: 16px;
+    box-shadow: 0 10px 22px rgba(0,0,0,0.05);
   }
 
   .sideCardHeader {
@@ -290,7 +290,7 @@
     justify-content: space-between;
     align-items: flex-start;
     gap: 12px;
-    margin-bottom: 12px;
+    margin-bottom: 14px;
   }
 
   .sideCardTitle {
@@ -328,7 +328,7 @@
 
   .cameraCoords {
     margin-top: 12px;
-    padding: 12px 14px;
+    padding: 13px 14px;
     border: 1px solid rgba(0,0,0,0.12);
     border-radius: 12px;
     background: rgba(247,247,247,0.92);
@@ -337,15 +337,35 @@
   .cameraCoordsTitle {
     font-size: 15px;
     font-weight: 800;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
   }
 
-  .cameraCoordsRow {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 14px;
-    padding: 4px 0;
+  .coordStatGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .coordStatCard {
+    padding: 10px 11px;
+    border-radius: 12px;
+    background: white;
+    border: 1px solid rgba(0,0,0,0.08);
+  }
+
+  .coordStatLabel {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #666;
+    margin-bottom: 6px;
+  }
+
+  .coordStatValue {
+    font-size: 16px;
+    font-weight: 800;
+    color: #111;
   }
 
   .robotApiControls {
@@ -374,7 +394,7 @@
 
   .robotStatus {
     padding: 10px 12px;
-    border-radius: 10px;
+    border-radius: 12px;
     background: rgba(0,0,0,0.045);
     border: 1px solid rgba(0,0,0,0.08);
     font-size: 13px;
@@ -395,11 +415,14 @@
   .controlSection {
     display: grid;
     gap: 10px;
+    padding: 12px;
+    border-radius: 14px;
+    background: rgba(245,245,245,0.95);
+    border: 1px solid rgba(0,0,0,0.08);
   }
 
   .controlSection + .controlSection {
     padding-top: 12px;
-    border-top: 1px solid rgba(0,0,0,0.08);
   }
 
   .controlSectionLabel {
@@ -408,6 +431,12 @@
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: #555;
+  }
+
+  .runButtonRow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
   }
 
   .runBtn {
@@ -722,10 +751,24 @@
 
       <div class="cameraCoords">
         <div class="cameraCoordsTitle">Robot Coordinates</div>
-        <div class="cameraCoordsRow"><span>X:</span> <span id="robotX">0.00</span></div>
-        <div class="cameraCoordsRow"><span>Y:</span> <span id="robotY">0.00</span></div>
-        <div class="cameraCoordsRow"><span>Velocity:</span> <span id="robotVelocity">0.00 in/s</span></div>
-        <div class="cameraCoordsRow"><span>Motor RPM:</span> <span id="robotMotorRpm">0.0</span></div>
+        <div class="coordStatGrid">
+          <div class="coordStatCard">
+            <div class="coordStatLabel">X</div>
+            <div id="robotX" class="coordStatValue">0.00</div>
+          </div>
+          <div class="coordStatCard">
+            <div class="coordStatLabel">Y</div>
+            <div id="robotY" class="coordStatValue">0.00</div>
+          </div>
+          <div class="coordStatCard">
+            <div class="coordStatLabel">Velocity</div>
+            <div id="robotVelocity" class="coordStatValue">0.00 in/s</div>
+          </div>
+          <div class="coordStatCard">
+            <div class="coordStatLabel">Motor RPM</div>
+            <div id="robotMotorRpm" class="coordStatValue">0.0</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -745,7 +788,7 @@
 
         <div class="controlSection">
           <div class="controlSectionLabel">Run Controls</div>
-          <div class="runSection">
+          <div class="runSection runButtonRow">
             <button id="runBtn" class="runBtn" type="button">Run</button>
             <button id="resetBtn" class="resetBtn" type="button">Reset Pose</button>
           </div>
