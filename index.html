@@ -394,10 +394,6 @@
     margin: 0;
   }
 
-  .topConnectionControls input {
-    width: 260px;
-  }
-
   .topConnectionControls button {
     margin: 0;
   }
@@ -690,7 +686,6 @@
         </div>
 
         <div class="topConnectionControls">
-          <input id="robotApiUrl" type="text" value="http://raspberrypi.local:8765" placeholder="Robot API URL">
           <select id="robotConnectionMode">
             <option value="serial" selected>Arduino serial</option>
             <option value="simulated">Simulated</option>
@@ -821,6 +816,7 @@
         <div class="controlSection">
           <div class="controlSectionLabel">Status</div>
           <div id="robotStatus" class="robotStatus">Robot API not connected yet.</div>
+          <input id="robotApiUrl" type="text" value="http://raspberrypi.local:8765" placeholder="Robot API URL">
         </div>
       </div>
     </div>
