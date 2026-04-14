@@ -824,8 +824,6 @@ const connectRobotBtn = document.getElementById("connectRobotBtn");
 const robotStatus = document.getElementById("robotStatus");
 const runBtn = document.getElementById("runBtn");
 const resetBtn = document.getElementById("resetBtn");
-const frontMotorTemp = document.getElementById("frontMotorTemp");
-const backMotorTemp = document.getElementById("backMotorTemp");
 const batteryPercentage = document.getElementById("batteryPercentage");
 const debugToggleBtn = document.getElementById("debugToggleBtn");
 const debugDrawer = document.getElementById("debugDrawer");
@@ -1072,7 +1070,6 @@ function updateDebugPanel(payload = null) {
   const backMotorConnected = serialConnected && payload?.back_motor_rpm != null;
   const leftIrConnected = payload?.left_edge_detected != null;
   const rightIrConnected = payload?.right_edge_detected != null;
-  const tempConnected = telemetry.front_motor_temp_c != null || telemetry.back_motor_temp_c != null;
   const batteryConnected = telemetry.battery_voltage != null;
 
   setSensorBadge(debugApiBadge, robotApiConnected);
@@ -1082,7 +1079,6 @@ function updateDebugPanel(payload = null) {
   setSensorBadge(debugBackMotorBadge, backMotorConnected);
   setSensorBadge(debugLeftIrBadge, leftIrConnected);
   setSensorBadge(debugRightIrBadge, rightIrConnected);
-  setSensorBadge(debugTempBadge, tempConnected);
   setSensorBadge(debugBatteryBadge, batteryConnected);
 
   debugApiState.textContent = robotApiConnected ? "online" : "offline";
@@ -1245,13 +1241,7 @@ function updateRobotCoords() {
   robotMotorRpm.textContent = formatRpm(robotMotorRpmEstimate);
 }
 
-function celsiusToFahrenheit(value) {
-  return (Number(value) * 9 / 5) + 32;
-}
-
 function updateTelemetry(telemetry = {}) {
-  frontMotorTemp.textContent = formatTelemetryValue(celsiusToFahrenheit(telemetry.front_motor_temp_c), " F");
-  backMotorTemp.textContent = formatTelemetryValue(celsiusToFahrenheit(telemetry.back_motor_temp_c), " F");
   const percentage = estimateBatteryPercentage(telemetry);
   batteryPercentage.textContent = percentage == null ? "--" : `${Math.round(percentage)}%`;
 }
