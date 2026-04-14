@@ -285,24 +285,6 @@
     box-shadow: 0 10px 22px rgba(0,0,0,0.05);
   }
 
-  .quickConnectBar {
-    display: grid;
-    gap: 8px;
-    padding: 12px 14px;
-    border: 1px solid rgba(0,0,0,0.12);
-    border-radius: 16px;
-    background: rgba(255,255,255,0.98);
-    box-shadow: 0 8px 18px rgba(0,0,0,0.04);
-  }
-
-  .quickConnectLabel {
-    font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: #555;
-  }
-
   .sideCardTitle {
     font-size: 17px;
     font-weight: 800;
@@ -745,17 +727,6 @@
   </div>
 
   <div class="rightPanel">
-    <div class="quickConnectBar">
-      <div class="quickConnectLabel">Connection Mode</div>
-      <div class="robotApiRow">
-        <select id="robotConnectionMode">
-          <option value="serial" selected>Arduino serial</option>
-          <option value="simulated">Simulated</option>
-        </select>
-        <button id="connectRobotBtn" type="button">Connect</button>
-      </div>
-    </div>
-
     <div class="sideCard">
       <div class="cameraView" id="cameraView">
         <img id="cameraFeed" src="" alt="Camera feed" style="width: 100%; height: 100%; object-fit: contain; display: none;">
@@ -802,6 +773,13 @@
           <div class="controlSectionLabel">Connection</div>
           <div class="robotApiControls">
             <input id="robotApiUrl" type="text" value="http://raspberrypi.local:8765" placeholder="Robot API URL">
+            <div class="robotApiRow">
+              <select id="robotConnectionMode">
+                <option value="serial" selected>Arduino serial</option>
+                <option value="simulated">Simulated</option>
+              </select>
+              <button id="connectRobotBtn" type="button">Connect</button>
+            </div>
           </div>
           <div class="cameraHint">
             Use serial for the real Arduino link or simulated to preview the route locally.
