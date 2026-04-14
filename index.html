@@ -58,13 +58,6 @@
     flex: 1 1 auto;
   }
 
-  .fieldModeBar {
-    width: 960px;
-    display: flex;
-    justify-content: center;
-    margin-bottom: 10px;
-  }
-
   .modeToggle {
     display: inline-flex;
     border: 1px solid rgba(0,0,0,0.2);
@@ -691,6 +684,11 @@
       <h2>Waypoint Field Console</h2>
 
       <div class="topBarActions">
+        <div class="modeToggle" id="controlModeToggle" aria-label="Control mode toggle">
+          <button id="autonBtn" class="modeBtn active" type="button">Auton</button>
+          <button id="teleopBtn" class="modeBtn" type="button">Teleop</button>
+        </div>
+
         <div class="topConnectionControls">
           <input id="robotApiUrl" type="text" value="http://raspberrypi.local:8765" placeholder="Robot API URL">
           <select id="robotConnectionMode">
@@ -703,13 +701,6 @@
     </div>
 
     <div id="wrap">
-      <div class="fieldModeBar">
-        <div class="modeToggle" id="controlModeToggle" aria-label="Control mode toggle">
-          <button id="autonBtn" class="modeBtn active" type="button">Auton</button>
-          <button id="teleopBtn" class="modeBtn" type="button">Teleop</button>
-        </div>
-      </div>
-
       <div id="field" tabindex="0" aria-label="Robot field editor">
         <div id="grid"></div>
         <svg id="lines" width="960" height="600"></svg>
