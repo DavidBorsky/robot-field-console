@@ -1064,8 +1064,9 @@ function setSensorBadge(element, connected, connectedText = "Connected", disconn
 }
 
 function updateDebugPanel(payload = null) {
+  const effectiveMode = payload?.connection || robotConnectionMode.value || "--";
   const telemetry = payload?.telemetry || {};
-  const serialConnected = !!(robotApiConnected && (payload?.connection === "serial" || robotConnectionMode.value === "serial"));
+  const serialConnected = !!(robotApiConnected && effectiveMode === "serial");
   const frontMotorConnected = serialConnected && payload?.front_motor_rpm != null;
   const backMotorConnected = serialConnected && payload?.back_motor_rpm != null;
   const leftIrConnected = payload?.left_edge_detected != null;
@@ -1080,7 +1081,7 @@ function updateDebugPanel(payload = null) {
   setSensorBadge(debugRightIrBadge, rightIrConnected);
 
   debugApiState.textContent = robotApiConnected ? "online" : "offline";
-  debugConnectionMode.textContent = payload?.connection || robotConnectionMode.value || "--";
+  debugConnectionMode.textContent = effectiveMode;
   debugRunnerStatus.textContent = payload?.status || (localSimulation.active ? "simulated" : "idle");
   debugDetail.textContent = payload?.detail || "--";
   debugFrontCommand.textContent = formatDebugNumber(payload?.command?.front_output, 3);
