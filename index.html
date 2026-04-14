@@ -1050,6 +1050,22 @@ function formatDebugNumber(value, digits = 2, suffix = "") {
   return `${Number(value).toFixed(digits)}${suffix}`;
 }
 
+function getPoseVelocityComponents(nowMs = performance.now()) {
+  if (lastVelocityPose == null || lastVelocityTimestampMs == null) {
+    return { forward: 0, strafe: 0 };
+  }
+
+  const dt = Math.max((nowMs - lastVelocityTimestampMs) / 1000, 1e-6);
+  const dx = robotPose.x - lastVelocityPose.x;
+  const dy = robotPose.y - lastVelocityPose.y;
+  const headingRad = (robotPose.heading || 0) * Math.PI / 180;
+  const cosH = Math.cos(headingRad);
+  const sinH = Math.sin(headingRad);
+  const forward = (dx * cosH) + (dy * sinH);
+  const strafe = (-dx * sinH) + (dy * cosH);
+  return { forward: forward / dt, strafe: strafe / dt };
+}
+
 function setDebugDrawerOpen(isOpen) {
   debugDrawer.classList.toggle("open", isOpen);
   debugBackdrop.classList.toggle("open", isOpen);
@@ -1067,13 +1083,14 @@ function buildSimDebugPayload() {
   const remaining = localSimulation.active
     ? Math.max(0, localSimulation.totalDistance - localSimulation.distanceTravelled)
     : null;
+  const velocityComponents = getPoseVelocityComponents();
   return {
     connection: "simulated",
     status: localSimulation.active ? "simulated" : "idle",
     detail: localSimulation.active ? "local simulation" : "--",
     pose: { heading_deg: robotPose.heading },
-    forward_velocity_in_per_s: robotVelocityInPerS,
-    strafe_velocity_in_per_s: 0,
+    forward_velocity_in_per_s: velocityComponents.forward,
+    strafe_velocity_in_per_s: velocityComponents.strafe,
     remaining_distance: remaining,
     paused_for_corner: localSimulation.pauseRemainingS > 0,
     corner_stop_remaining_s: localSimulation.pauseRemainingS,
