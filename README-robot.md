@@ -23,7 +23,7 @@ The browser UI plans paths, and `robot-paths.json` is the shared format that bot
 
 - `odom.py`
   Odometry state and pose updates.
-  This should estimate the robot pose using encoders plus gyro heading.
+  This should estimate the robot pose using encoder data for the current chassis.
 
 - `drivetrain.py`
   High-level drive commands.
@@ -34,10 +34,6 @@ The browser UI plans paths, and `robot-paths.json` is the shared format that bot
   High-level navigation logic.
   This is where Pure Pursuit, speed profiling, waypoint progression, and a future
   Ramsete controller should live.
-
-- `gyro.py`
-  Gyro or IMU wrapper.
-  This should expose heading, reset, and calibration helpers.
 
 - `camera.py`
   Camera or vision wrapper.
@@ -112,7 +108,7 @@ theoretical wheel-edge speed of about 31.4 in/s before real-world load losses.
 3. Put that payload into `robot-paths.json`.
 4. Start `robot_server.py` on the Raspberry Pi.
 5. The browser UI connects to the Pi server, pushes the current path, and sends a run request.
-6. `robot_runner.py` loads the chosen path and uses PID, odometry, drivetrain, gyro, camera, and connection code to follow it.
+6. `robot_runner.py` loads the chosen path and uses PID, odometry, drivetrain, camera, and connection code to follow it.
 
 In simulated mode, `robot_runner.py` now also advances a virtual pose from the
 generated motor commands. That gives a much more useful pre-hardware test loop
@@ -136,6 +132,25 @@ If `raspberrypi.local` does not resolve on your network, replace it with the
 Pi's local IP address, for example:
 
 - `http://192.168.1.42:8765/`
+
+## Camera bring-up
+
+The robot server now exposes camera connection details in both:
+
+- `GET /health`
+- `GET /robot-state`
+
+Useful Pi commands:
+
+```bash
+python3 robot_server.py --host 0.0.0.0 --port 8765 --camera-index -1
+```
+
+Notes:
+
+- `--camera-index -1` auto-detects across common USB camera indices.
+- Use `--camera-index 0` or another explicit index if you already know the device.
+- If no camera is found, the server stays up and reports the failure reason in the `camera.detail` field instead of crashing at startup.
 
 ## Encoder note
 
