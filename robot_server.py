@@ -9,13 +9,32 @@ from socketserver import ThreadingMixIn
 from typing import Any, Dict, Optional, Type
 from urllib.parse import urlsplit
 
-from camera import create_camera
-from constants import DEFAULT_POWER_SCALE, DEFAULT_SERIAL_PORT_LINUX
+from camera import UnavailableCamera, create_camera
+from constants import DEFAULT_CAMERA_INDEX, DEFAULT_POWER_SCALE, DEFAULT_SERIAL_PORT_LINUX
 from robot_runner import BASE_DIR, run_path
 
 
 def utc_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def camera_status_payload(camera: Any) -> Dict[str, Any]:
+    try:
+        status = camera.status()
+    except Exception as exc:  # pragma: no cover - defensive
+        return {
+            "connected": False,
+            "mode": "error",
+            "detail": str(exc),
+            "index": None,
+        }
+
+    return {
+        "connected": bool(status.connected),
+        "mode": status.mode,
+        "detail": status.detail,
+        "index": status.index,
+    }
 
 
 class RobotStateStore:
@@ -39,6 +58,12 @@ class RobotStateStore:
             "step": 0,
             "max_steps": 0,
             "updated_at": utc_timestamp(),
+            "camera": {
+                "connected": False,
+                "mode": "unknown",
+                "detail": "camera not initialized",
+                "index": None,
+            },
         }
         self._lock = threading.Lock()
         self._run_thread = None  # type: Optional[threading.Thread]
@@ -101,17 +126,26 @@ def build_handler(
         def do_GET(self) -> None:  # noqa: N802
             request_path = urlsplit(self.path).path
             if request_path == "/health":
-                self._send_json({"ok": True, "status": "ready"})
+                self._send_json({"ok": True, "status": "ready", "camera": camera_status_payload(camera)})
                 return
             if request_path == "/robot-state":
                 snapshot = state_store.get()
                 snapshot["connected"] = True
+                snapshot["camera"] = camera_status_payload(camera)
                 self._send_json(snapshot)
                 return
             if request_path == "/camera":
                 try:
                     frame = camera.read_frame()
-                    if frame.frame_data is not None:
+                    if getattr(frame, "jpeg_bytes", None) is not None:
+                        img_bytes = frame.jpeg_bytes
+                        self.send_response(HTTPStatus.OK)
+                        self.send_header("Content-Type", "image/jpeg")
+                        self.send_header("Content-Length", str(len(img_bytes)))
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.end_headers()
+                        self.wfile.write(img_bytes)
+                    elif frame.frame_data is not None:
                         import cv2
                         # Encode frame as JPEG
                         encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 80]
@@ -282,11 +316,22 @@ def main() -> None:
     )
     parser.add_argument("--baud", type=int, default=115200, help="Default serial baud rate")
     parser.add_argument("--simulate", action="store_true", help="Use simulated camera instead of hardware")
+    parser.add_argument(
+        "--camera-index",
+        type=int,
+        default=DEFAULT_CAMERA_INDEX,
+        help="Camera index to open. Use -1 to auto-detect across common USB camera indices.",
+    )
     args = parser.parse_args()
 
     state_store = RobotStateStore()
-    camera = create_camera(simulate=args.simulate)
-    camera.start()
+    camera = create_camera(simulate=args.simulate, index=args.camera_index)
+    try:
+        camera.start()
+    except Exception as exc:
+        camera = UnavailableCamera(str(exc))
+
+    state_store.update(camera=camera_status_payload(camera))
     
     handler = build_handler(
         state_store=state_store,

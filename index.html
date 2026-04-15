@@ -1040,11 +1040,16 @@ let robotApiBaseUrl = robotApiUrlInput.value.trim();
 let robotPollTimer = null;
 let cameraPollTimer = null;
 let robotPollInFlight = false;
+let cameraRequestInFlight = false;
+let cameraObjectUrl = null;
 let robotApiConnected = false;
 let robotMoving = false;
 let robotVelocityInPerS = 0;
 let robotMotorRpmEstimate = 0;
 let cameraFeedConnected = false;
+let serverCameraConnected = false;
+let serverCameraDetail = "";
+let cameraFailureCount = 0;
 let liveTimeRemainingSeconds = null;
 let robotRemainingDistanceIn = null;
 let lastVelocityPose = null;
@@ -1255,8 +1260,10 @@ function updateDebugPanel(payload = null) {
   const rightIrConnected = resolvedPayload?.right_edge_detected != null;
   const fallbackVelocity = getPoseVelocityComponents();
 
+  const cameraConnected = cameraFeedConnected || serverCameraConnected;
+
   setSensorBadge(debugApiBadge, robotApiConnected);
-  setSensorBadge(debugCameraBadge, cameraFeedConnected);
+  setSensorBadge(debugCameraBadge, cameraConnected, cameraConnected ? "Connected" : "Disconnected");
   setSensorBadge(debugSerialBadge, serialConnected);
   setSensorBadge(debugFrontMotorBadge, frontMotorConnected, simulatedConnected ? "Simulated" : "Connected");
   setSensorBadge(debugBackMotorBadge, backMotorConnected, simulatedConnected ? "Simulated" : "Connected");
@@ -1266,7 +1273,7 @@ function updateDebugPanel(payload = null) {
   debugApiState.textContent = robotApiConnected ? "online" : "offline";
   debugConnectionMode.textContent = effectiveMode;
   debugRunnerStatus.textContent = resolvedPayload?.status || (localSimulation.active ? "simulated" : "idle");
-  debugDetail.textContent = resolvedPayload?.detail || "--";
+  debugDetail.textContent = resolvedPayload?.detail || serverCameraDetail || "--";
   debugFrontCommand.textContent = formatDebugNumber(resolvedPayload?.command?.front_output, 3);
   debugBackCommand.textContent = formatDebugNumber(resolvedPayload?.command?.back_output, 3);
   debugPowerScale.textContent = formatDebugNumber(resolvedPayload?.power_scale, 2);
@@ -1545,24 +1552,45 @@ function stopRobotPolling() {
   robotPollTimer = null;
   if (cameraPollTimer) clearInterval(cameraPollTimer);
   cameraPollTimer = null;
+  robotPollInFlight = false;
+  cameraRequestInFlight = false;
 }
 
 async function updateCameraFeed() {
-  if (!robotApiBaseUrl) return;
+  if (!robotApiBaseUrl || cameraRequestInFlight) return;
   
   try {
-    // Add timestamp to prevent caching
+    cameraRequestInFlight = true;
     const timestamp = Date.now();
-    cameraFeed.src = `${robotApiBaseUrl}/camera?t=${timestamp}`;
+    const response = await fetch(`${robotApiBaseUrl}/camera?t=${timestamp}`, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    if (cameraObjectUrl) {
+      URL.revokeObjectURL(cameraObjectUrl);
+    }
+    cameraObjectUrl = URL.createObjectURL(blob);
+    cameraFeed.src = cameraObjectUrl;
+    cameraFeedConnected = true;
+    cameraFailureCount = 0;
     cameraFeed.style.display = "block";
     cameraPlaceholder.style.display = "none";
+    updateDebugPanel();
   } catch (err) {
     console.warn("Camera feed error:", err);
-    cameraFeed.style.display = "none";
-    cameraPlaceholder.textContent = "Camera unavailable";
-    cameraPlaceholder.style.display = "flex";
-    cameraFeedConnected = false;
+    cameraFailureCount += 1;
+    if (!serverCameraConnected || (!cameraFeedConnected && cameraFailureCount >= 2)) {
+      cameraFeedConnected = false;
+      cameraPlaceholder.textContent = "Camera unavailable";
+      cameraPlaceholder.style.display = "flex";
+    } else {
+      cameraPlaceholder.style.display = "none";
+    }
     updateDebugPanel(null);
+  } finally {
+    cameraRequestInFlight = false;
   }
 }
 
@@ -1578,6 +1606,8 @@ async function pollRobotState() {
 
     const payload = await response.json();
     robotApiConnected = true;
+    serverCameraConnected = !!payload.camera?.connected;
+    serverCameraDetail = payload.camera?.detail || "";
     if (payload.pose) {
       robotPose.x = Number(payload.pose.x ?? robotPose.x) || 0;
       robotPose.y = Number(payload.pose.y ?? robotPose.y) || 0;
@@ -1617,6 +1647,8 @@ async function pollRobotState() {
     resetBtn.disabled = !!payload.running;
   } catch (err) {
     robotApiConnected = false;
+    serverCameraConnected = false;
+    serverCameraDetail = "";
     robotMoving = false;
     liveTimeRemainingSeconds = null;
     robotRemainingDistanceIn = null;
@@ -1629,24 +1661,21 @@ async function pollRobotState() {
     resetBtn.disabled = false;
     setRobotStatus(`Robot API offline: ${err.message}`, true);
     updateDebugPanel(null);
-    
-    // Hide camera feed on disconnect
-    cameraFeed.style.display = "none";
-    cameraPlaceholder.textContent = "Camera unavailable";
-    cameraPlaceholder.style.display = "flex";
-    cameraFeedConnected = false;
+    cameraRequestInFlight = false;
   } finally {
     robotPollInFlight = false;
   }
 }
 
-cameraFeed.addEventListener("load", () => {
-  cameraFeedConnected = true;
-  updateDebugPanel();
-});
-
 cameraFeed.addEventListener("error", () => {
-  cameraFeedConnected = false;
+  cameraRequestInFlight = false;
+  cameraFailureCount += 1;
+  if (!serverCameraConnected && cameraFailureCount >= 2) {
+    cameraFeedConnected = false;
+    cameraFeed.style.display = "none";
+    cameraPlaceholder.textContent = "Camera unavailable";
+    cameraPlaceholder.style.display = "flex";
+  }
   updateDebugPanel();
 });
 
@@ -1660,12 +1689,19 @@ function startRobotPolling() {
 
   setRobotStatus("Connecting to robot API...");
   pollRobotState();
-  robotPollTimer = setInterval(pollRobotState, 350);
-  cameraPollTimer = setInterval(updateCameraFeed, 100); // Update camera every 100ms
+  robotPollTimer = setInterval(pollRobotState, 1000);
+  updateCameraFeed();
+  cameraPollTimer = setInterval(updateCameraFeed, 1800);
 }
 
 connectRobotBtn.addEventListener("click", () => {
   startRobotPolling();
+});
+
+window.addEventListener("load", () => {
+  if (robotApiUrlInput.value.trim()) {
+    startRobotPolling();
+  }
 });
 
 debugToggleBtn.addEventListener("click", () => {
