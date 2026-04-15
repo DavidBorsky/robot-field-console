@@ -1,5 +1,4 @@
 """Custom drivetrain helpers for a two-motor front/back mecanum layout."""
-from math import atan2, cos, sin
 from typing import Dict, Optional, Tuple
 
 from constants import (
@@ -94,9 +93,10 @@ class PathFollower:
         dx = target_x - pose.x
         dy = target_y - pose.y
 
-        # Convert field-frame position error into robot-frame forward/strafe error.
-        robot_forward_error = dx * cos(pose.heading_rad) + dy * sin(pose.heading_rad)
-        robot_strafe_error = -dx * sin(pose.heading_rad) + dy * cos(pose.heading_rad)
+        # For this chassis model, the robot front stays fixed in the field frame.
+        # Treat +x as robot forward/back and +y as robot strafe.
+        robot_forward_error = dx
+        robot_strafe_error = dy
 
         forward_cmd = self.distance_pid.update(robot_forward_error, 0.0, dt)
         strafe_cmd = self.strafe_pid.update(robot_strafe_error, 0.0, dt)

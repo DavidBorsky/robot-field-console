@@ -120,9 +120,9 @@ class FrontBackMecanumOdometry:
     """Pose tracking for a front/back linked mecanum layout.
 
     This model assumes:
-    - equal front/back wheel motion -> forward/back translation
-    - opposite front/back wheel motion -> strafe translation
-    - heading stays fixed unless an external heading override is provided
+    - equal front/back wheel motion -> forward/back translation along +x/-x
+    - opposite front/back wheel motion -> strafe translation along +y/-y
+    - robot orientation stays fixed in the field frame
     """
 
     def __init__(
@@ -176,17 +176,14 @@ class FrontBackMecanumOdometry:
     ) -> Pose2D:
         robot_forward = ((front_distance_in + back_distance_in) / 2.0) * self.forward_scale
         robot_strafe = ((front_distance_in - back_distance_in) / 2.0) * self.strafe_scale
+        _ = heading_deg
 
-        if heading_deg is not None:
-            self.pose.heading_rad = wrap_heading_radians(radians(heading_deg))
-
-        heading = self.pose.heading_rad
-
-        # Rotate robot-frame translation into field-frame translation.
-        self.pose.x += robot_forward * cos(heading) - robot_strafe * sin(heading)
-        self.pose.y += robot_forward * sin(heading) + robot_strafe * cos(heading)
+        # Robot body frame stays aligned with the field frame.
+        self.pose.x += robot_forward
+        self.pose.y += robot_strafe
         self.pose.x = clamp(self.pose.x, PLAYABLE_MIN_X_IN, PLAYABLE_MAX_X_IN)
         self.pose.y = clamp(self.pose.y, PLAYABLE_MIN_Y_IN, PLAYABLE_MAX_Y_IN)
+        self.pose.heading_rad = 0.0
         self.motion.front_distance_in = front_distance_in
         self.motion.back_distance_in = back_distance_in
         return self.pose
@@ -220,8 +217,7 @@ class FrontBackMecanumOdometry:
                 self.motion.robot_forward_velocity_in_per_s,
                 self.motion.robot_strafe_velocity_in_per_s,
             )
-            if heading_deg is not None:
-                self.pose.heading_rad = wrap_heading_radians(radians(heading_deg))
+            self.pose.heading_rad = 0.0
             return self.pose
 
         delta_front_counts = front_count - self._last_front_count

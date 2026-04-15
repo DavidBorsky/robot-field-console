@@ -118,9 +118,8 @@ def run_path(
     )
     print("Power scale: {:.2f}".format(power_scale))
 
-    initial_heading_deg = heading_for_segment(waypoints, 0, 0.0)
     odom = FrontBackMecanumOdometry()
-    odom.reset(x=waypoints[0].x, y=waypoints[0].y, heading_deg=initial_heading_deg)
+    odom.reset(x=waypoints[0].x, y=waypoints[0].y, heading_deg=0.0)
     emit_status(
         status_callback,
         running=True,
@@ -135,6 +134,7 @@ def run_path(
             "y": odom.pose.y,
             "heading_deg": odom.pose.heading_deg,
         },
+        travel_direction_deg=heading_for_segment(waypoints, 0, 0.0),
         step=0,
         max_steps=SIM_MAX_STEPS_PER_RUN,
         waypoint_count=len(waypoints),
@@ -215,28 +215,22 @@ def run_path(
                     right_edge_detected=ir_state.right_edge_detected,
                 )
 
-            layout_heading_deg = heading_for_segment(waypoints, follower.current_index, odom.pose.heading_deg)
             odom.update_from_encoder_snapshot(
                 front_count=sensor_snapshot.encoders.front_count,
                 back_count=sensor_snapshot.encoders.back_count,
                 front_rpm=sensor_snapshot.encoders.front_rpm,
                 back_rpm=sensor_snapshot.encoders.back_rpm,
                 dt=DEFAULT_CONTROL_DT_S,
-                heading_deg=layout_heading_deg,
+                heading_deg=0.0,
                 counts_per_rev=sensor_snapshot.encoders.counts_per_rev,
             )
             requested_command, debug = follower.update(pose=odom.pose)
-            commanded_heading_deg = heading_from_points(
+            travel_direction_deg = heading_from_points(
                 odom.pose.x,
                 odom.pose.y,
                 debug.get("lookahead_x", odom.pose.x),
                 debug.get("lookahead_y", odom.pose.y),
-                odom.pose.heading_deg,
-            )
-            odom.update(
-                front_distance_in=0.0,
-                back_distance_in=0.0,
-                heading_deg=commanded_heading_deg,
+                0.0,
             )
             edge_correction = edge_safety.apply(requested_command, ir_state)
             command = scale_motor_command(edge_correction.command, power_scale)
@@ -289,6 +283,7 @@ def run_path(
                     "y": odom.pose.y,
                     "heading_deg": odom.pose.heading_deg,
                 },
+                travel_direction_deg=travel_direction_deg,
                 command={
                     "front_output": command.front_output,
                     "back_output": command.back_output,
@@ -339,6 +334,7 @@ def run_path(
                         "y": odom.pose.y,
                         "heading_deg": odom.pose.heading_deg,
                     },
+                    travel_direction_deg=travel_direction_deg,
                     step=step,
                     max_steps=SIM_MAX_STEPS_PER_RUN,
                     velocity_in_per_s=0.0,
@@ -362,6 +358,7 @@ def run_path(
                         "y": odom.pose.y,
                         "heading_deg": odom.pose.heading_deg,
                     },
+                    travel_direction_deg=travel_direction_deg,
                     step=step,
                     max_steps=SIM_MAX_STEPS_PER_RUN,
                     waypoint_index=debug["current_index"],
@@ -428,6 +425,7 @@ def run_path(
                 "y": odom.pose.y,
                 "heading_deg": odom.pose.heading_deg,
             },
+            travel_direction_deg=0.0,
             velocity_in_per_s=0.0,
             motor_rpm_estimate=0.0,
             velocity_source="encoder",

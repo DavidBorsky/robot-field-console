@@ -1233,6 +1233,7 @@ function buildSimDebugPayload() {
     status: localSimulation.active ? "simulated" : "idle",
     detail: localSimulation.active ? "local simulation" : "--",
     pose: { heading_deg: robotPose.heading },
+    travel_direction_deg: robotPose.heading,
     forward_velocity_in_per_s: localSimulation.forwardVelocity,
     strafe_velocity_in_per_s: localSimulation.strafeVelocity,
     remaining_distance: remaining,
@@ -1282,7 +1283,7 @@ function updateDebugPanel(payload = null) {
   debugFrontRpm.textContent = formatDebugNumber(resolvedPayload?.front_motor_rpm, 2);
   debugBackRpm.textContent = formatDebugNumber(resolvedPayload?.back_motor_rpm, 2);
   debugHeading.textContent = formatDebugNumber(
-    resolvedPayload?.pose?.heading_deg ?? robotPose.heading,
+    resolvedPayload?.travel_direction_deg ?? robotPose.heading,
     2,
     " deg"
   );
