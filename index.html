@@ -881,7 +881,7 @@
 
   <div class="debugSection">
     <div class="debugSectionTitle">Odometry</div>
-    <div class="debugRow"><span class="debugLabel">Heading:</span> <span id="debugHeading" class="debugValue">--</span></div>
+    <div class="debugRow"><span class="debugLabel">Travel dir:</span> <span id="debugHeading" class="debugValue">--</span></div>
     <div class="debugRow"><span class="debugLabel">Forward vel:</span> <span id="debugForwardVelocity" class="debugValue">--</span></div>
     <div class="debugRow"><span class="debugLabel">Strafe vel:</span> <span id="debugStrafeVelocity" class="debugValue">--</span></div>
     <div class="debugRow"><span class="debugLabel">Remaining:</span> <span id="debugRemainingDistance" class="debugValue">--</span></div>
@@ -1308,6 +1308,17 @@ function updateDebugPanel(payload = null) {
   debugEdgeDetail.textContent = resolvedPayload?.edge_detail || "--";
 }
 
+function getPathStartHeadingDeg() {
+  const pts = getPts();
+  if (pts.length < 2) return 0;
+  const start = pts[0];
+  const next = pts[1];
+  const dx = next.x - start.x;
+  const dy = next.y - start.y;
+  if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) return 0;
+  return Math.atan2(dy, dx) * 180 / Math.PI;
+}
+
 async function writeRobotPathsFileNow() {
   if (!robotPathsFileHandle) return;
   if (syncWriteInFlight) {
@@ -1644,7 +1655,7 @@ async function pollRobotState() {
     setRobotStatus(statusText.trim());
     runBtn.disabled = !!payload.running;
     runBtn.textContent = payload.running ? "Running..." : "Run";
-    resetBtn.disabled = !!payload.running;
+    resetBtn.disabled = false;
   } catch (err) {
     robotApiConnected = false;
     serverCameraConnected = false;
@@ -1778,9 +1789,10 @@ resetBtn.addEventListener("click", async () => {
   if (robotConnectionMode.value === "simulated") {
     const pts = getPts();
     const start = pts[0] || { x: 0, y: 0 };
+    const startHeadingDeg = getPathStartHeadingDeg();
     robotPose.x = start.x;
     robotPose.y = start.y;
-    robotPose.heading = 0;
+    robotPose.heading = startHeadingDeg;
     robotMoving = false;
     liveTimeRemainingSeconds = null;
     robotRemainingDistanceIn = null;
@@ -1804,6 +1816,7 @@ resetBtn.addEventListener("click", async () => {
 
   const pts = getPts();
   const start = pts[0] || { x: 0, y: 0 };
+  const startHeadingDeg = getPathStartHeadingDeg();
 
   try {
     const response = await fetch(`${robotApiBaseUrl}/reset`, {
@@ -1816,7 +1829,7 @@ resetBtn.addEventListener("click", async () => {
         pose: {
           x: start.x,
           y: start.y,
-          heading_deg: 0
+          heading_deg: startHeadingDeg
         }
       })
     });
@@ -2109,6 +2122,14 @@ function updateCourseEstimate() {
 }
 
 function interpolatePoseAtDistance(samples, distanceTravelled) {
+  const headingFromSamplePair = (from, to, fallback = 0) => {
+    if (!from || !to) return fallback;
+    const dx = to.in.x - from.in.x;
+    const dy = to.in.y - from.in.y;
+    if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) return fallback;
+    return Math.atan2(dy, dx) * 180 / Math.PI;
+  };
+
   if (!samples.length) {
     return { x: 0, y: 0, heading: 0 };
   }
@@ -2117,7 +2138,7 @@ function interpolatePoseAtDistance(samples, distanceTravelled) {
     return {
       x: samples[0].in.x,
       y: samples[0].in.y,
-      heading: 0
+      heading: headingFromSamplePair(samples[0], samples[1], 0)
     };
   }
 
@@ -2126,7 +2147,7 @@ function interpolatePoseAtDistance(samples, distanceTravelled) {
     return {
       x: last.in.x,
       y: last.in.y,
-      heading: 0
+      heading: headingFromSamplePair(samples[samples.length - 2], last, 0)
     };
   }
 
@@ -2139,14 +2160,14 @@ function interpolatePoseAtDistance(samples, distanceTravelled) {
     return {
       x: prev.in.x + (next.in.x - prev.in.x) * t,
       y: prev.in.y + (next.in.y - prev.in.y) * t,
-      heading: 0
+      heading: headingFromSamplePair(prev, next, 0)
     };
   }
 
   return {
     x: last.in.x,
     y: last.in.y,
-    heading: 0
+    heading: headingFromSamplePair(samples[samples.length - 2], last, 0)
   };
 }
 
@@ -2255,7 +2276,7 @@ function runLocalSimulationFrame(timestamp) {
     const stopPose = interpolatePoseAtDistance(localSimulation.samples, localSimulation.distanceTravelled);
     robotPose.x = stopPose.x;
     robotPose.y = stopPose.y;
-    robotPose.heading = 0;
+    robotPose.heading = stopPose.heading;
     robotMoving = false;
     setRobotVelocityFromModel(0, timestamp);
     setRobotMotorRpm(0);
@@ -2357,7 +2378,7 @@ function startLocalSimulation() {
   const startPose = decorated[0];
   robotPose.x = startPose.in.x;
   robotPose.y = startPose.in.y;
-  robotPose.heading = 0;
+  robotPose.heading = interpolatePoseAtDistance(decorated, 0).heading;
   robotMoving = true;
   setRobotVelocityFromModel(0);
   setRobotMotorRpm(0);
@@ -2532,7 +2553,7 @@ function fullRender() {
   if (!robotApiConnected && !localSimulation.active && pts.length > 0) {
     robotPose.x = pts[0].x;
     robotPose.y = pts[0].y;
-    robotPose.heading = 0;
+    robotPose.heading = getPathStartHeadingDeg();
     clearRobotTrail();
     appendRobotTrailPoint({ x: robotPose.x, y: robotPose.y });
   } else if (!robotApiConnected && !localSimulation.active && pts.length === 0) {

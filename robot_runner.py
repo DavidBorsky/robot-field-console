@@ -1,6 +1,8 @@
 import argparse
 import json
+from math import atan2, degrees
 from pathlib import Path
+from threading import Event
 from typing import Any, Callable, Dict, List, Optional
 
 from camera import SimulatedCamera, VisionTarget
@@ -24,6 +26,23 @@ class Waypoint:
     def __init__(self, x, y):
         self.x = float(x)
         self.y = float(y)
+
+
+def heading_from_points(start_x: float, start_y: float, end_x: float, end_y: float, fallback_deg: float = 0.0) -> float:
+    dx = end_x - start_x
+    dy = end_y - start_y
+    if abs(dx) <= 1e-9 and abs(dy) <= 1e-9:
+        return fallback_deg
+    return degrees(atan2(dy, dx))
+
+
+def heading_for_segment(waypoints: List[Waypoint], segment_index: int, fallback_deg: float = 0.0) -> float:
+    if len(waypoints) < 2:
+        return fallback_deg
+    clamped_index = max(0, min(segment_index, len(waypoints) - 2))
+    start = waypoints[clamped_index]
+    end = waypoints[clamped_index + 1]
+    return heading_from_points(start.x, start.y, end.x, end.y, fallback_deg)
 
 
 def load_robot_paths(path_file: Path = DEFAULT_PATH_FILE) -> dict:
@@ -63,6 +82,7 @@ def run_path(
     serial_baud: int = 115200,
     power_scale: float = DEFAULT_POWER_SCALE,
     status_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    stop_event: Optional[Event] = None,
 ) -> None:
     payload = load_robot_paths(path_file)
     waypoints = get_waypoints(payload, mode)
@@ -98,8 +118,9 @@ def run_path(
     )
     print("Power scale: {:.2f}".format(power_scale))
 
+    initial_heading_deg = heading_for_segment(waypoints, 0, 0.0)
     odom = FrontBackMecanumOdometry()
-    odom.reset(x=waypoints[0].x, y=waypoints[0].y, heading_deg=0.0)
+    odom.reset(x=waypoints[0].x, y=waypoints[0].y, heading_deg=initial_heading_deg)
     emit_status(
         status_callback,
         running=True,
@@ -146,6 +167,25 @@ def run_path(
         last_command = None
         path_completed = False
         for step in range(1, SIM_MAX_STEPS_PER_RUN + 1):
+            if stop_event is not None and stop_event.is_set():
+                emit_status(
+                    status_callback,
+                    running=False,
+                    mode=mode,
+                    status="stopped",
+                    detail="reset requested",
+                    pose={
+                        "x": odom.pose.x,
+                        "y": odom.pose.y,
+                        "heading_deg": odom.pose.heading_deg,
+                    },
+                    step=max(step - 1, 0),
+                    max_steps=SIM_MAX_STEPS_PER_RUN,
+                    velocity_in_per_s=0.0,
+                    motor_rpm_estimate=0.0,
+                    velocity_source="encoder",
+                )
+                break
             sensor_snapshot = connection.read_sensors()
             ir_state = sensor_snapshot.ir
 
@@ -175,17 +215,29 @@ def run_path(
                     right_edge_detected=ir_state.right_edge_detected,
                 )
 
-            reported_heading_deg = sensor_snapshot.heading_deg
+            layout_heading_deg = heading_for_segment(waypoints, follower.current_index, odom.pose.heading_deg)
             odom.update_from_encoder_snapshot(
                 front_count=sensor_snapshot.encoders.front_count,
                 back_count=sensor_snapshot.encoders.back_count,
                 front_rpm=sensor_snapshot.encoders.front_rpm,
                 back_rpm=sensor_snapshot.encoders.back_rpm,
                 dt=DEFAULT_CONTROL_DT_S,
-                heading_deg=reported_heading_deg,
+                heading_deg=layout_heading_deg,
                 counts_per_rev=sensor_snapshot.encoders.counts_per_rev,
             )
             requested_command, debug = follower.update(pose=odom.pose)
+            commanded_heading_deg = heading_from_points(
+                odom.pose.x,
+                odom.pose.y,
+                debug.get("lookahead_x", odom.pose.x),
+                debug.get("lookahead_y", odom.pose.y),
+                odom.pose.heading_deg,
+            )
+            odom.update(
+                front_distance_in=0.0,
+                back_distance_in=0.0,
+                heading_deg=commanded_heading_deg,
+            )
             edge_correction = edge_safety.apply(requested_command, ir_state)
             command = scale_motor_command(edge_correction.command, power_scale)
             print(
@@ -275,6 +327,25 @@ def run_path(
                     "battery_voltage": sensor_snapshot.telemetry.battery_voltage,
                 },
             )
+            if stop_event is not None and stop_event.is_set():
+                emit_status(
+                    status_callback,
+                    running=False,
+                    mode=mode,
+                    status="stopped",
+                    detail="reset requested",
+                    pose={
+                        "x": odom.pose.x,
+                        "y": odom.pose.y,
+                        "heading_deg": odom.pose.heading_deg,
+                    },
+                    step=step,
+                    max_steps=SIM_MAX_STEPS_PER_RUN,
+                    velocity_in_per_s=0.0,
+                    motor_rpm_estimate=0.0,
+                    velocity_source="encoder",
+                )
+                break
             connection.send_motor_command(command)
             last_command = command
 
@@ -338,6 +409,9 @@ def run_path(
         if path_completed:
             final_status = "complete"
             final_detail = "run finished and connection closed"
+        elif stop_event is not None and stop_event.is_set():
+            final_status = "stopped"
+            final_detail = "run stopped by reset request"
         elif last_command is not None:
             final_status = "stopped"
             final_detail = "run stopped before reaching the goal"

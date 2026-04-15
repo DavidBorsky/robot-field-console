@@ -67,6 +67,7 @@ class RobotStateStore:
         }
         self._lock = threading.Lock()
         self._run_thread = None  # type: Optional[threading.Thread]
+        self._stop_event = None  # type: Optional[threading.Event]
 
     def get(self) -> Dict[str, Any]:
         with self._lock:
@@ -88,6 +89,21 @@ class RobotStateStore:
     def set_thread(self, thread: Optional[threading.Thread]) -> None:
         with self._lock:
             self._run_thread = thread
+
+    def set_stop_event(self, stop_event: Optional[threading.Event]) -> None:
+        with self._lock:
+            self._stop_event = stop_event
+
+    def stop_run(self, timeout_s: float = 2.0) -> bool:
+        with self._lock:
+            thread = self._run_thread
+            stop_event = self._stop_event
+        if stop_event is not None:
+            stop_event.set()
+        if thread is not None and thread.is_alive():
+            thread.join(timeout_s)
+        with self._lock:
+            return not (self._run_thread is not None and self._run_thread.is_alive())
 
 
 def build_handler(
@@ -174,17 +190,14 @@ def build_handler(
 
         def do_POST(self) -> None:  # noqa: N802
             if self.path == "/reset":
-                if state_store.is_running():
-                    self._send_json(
-                        {"error": "cannot reset while robot is running"},
-                        status=HTTPStatus.CONFLICT,
-                    )
-                    return
-
                 try:
                     payload = self._read_json_body()
                 except json.JSONDecodeError:
                     self._send_json({"error": "invalid JSON body"}, status=HTTPStatus.BAD_REQUEST)
+                    return
+
+                if not state_store.stop_run(timeout_s=2.0):
+                    self._send_json({"error": "robot did not stop in time"}, status=HTTPStatus.CONFLICT)
                     return
 
                 reset_pose = payload.get("pose") or {}
@@ -252,6 +265,8 @@ def build_handler(
             def publish(update: Dict[str, Any]) -> None:
                 state_store.update(**update)
 
+            stop_event = threading.Event()
+
             def worker() -> None:
                 try:
                     run_path(
@@ -263,6 +278,7 @@ def build_handler(
                         serial_baud=serial_baud,
                         power_scale=power_scale,
                         status_callback=publish,
+                        stop_event=stop_event,
                     )
                     final_state = state_store.get()
                     if final_state.get("status") not in {"complete", "stopped"}:
@@ -275,9 +291,11 @@ def build_handler(
                 finally:
                     state_store.update(running=False)
                     state_store.set_thread(None)
+                    state_store.set_stop_event(None)
 
             thread = threading.Thread(target=worker, name="robot-runner", daemon=True)
             state_store.set_thread(thread)
+            state_store.set_stop_event(stop_event)
             thread.start()
 
             self._send_json(
