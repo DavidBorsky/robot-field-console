@@ -51,6 +51,7 @@ class RobotStateStore:
                 "front_motor_temp_c": None,
                 "back_motor_temp_c": None,
                 "battery_voltage": None,
+                "pi_battery_voltage": None,
             },
             "velocity_in_per_s": 0.0,
             "motor_rpm_estimate": 0.0,
@@ -247,6 +248,11 @@ def build_handler(
             serial_baud = int(payload.get("baud", default_baud))
             power_scale = float(payload.get("power_scale", DEFAULT_POWER_SCALE))
             robot_paths = payload.get("robot_paths")
+            current_state = state_store.get()
+            initial_pose = None
+
+            if mode == "teleop":
+                initial_pose = current_state.get("pose")
 
             if robot_paths is not None:
                 path_file.parent.mkdir(parents=True, exist_ok=True)
@@ -279,6 +285,7 @@ def build_handler(
                         power_scale=power_scale,
                         status_callback=publish,
                         stop_event=stop_event,
+                        initial_pose=initial_pose,
                     )
                     final_state = state_store.get()
                     if final_state.get("status") not in {"complete", "stopped"}:

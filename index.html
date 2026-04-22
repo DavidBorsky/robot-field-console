@@ -845,6 +845,7 @@
       <div class="sensorStatusRow"><span class="debugLabel">Front motor</span><span id="debugFrontMotorBadge" class="sensorBadge disconnected">Disconnected</span></div>
       <div class="sensorStatusRow"><span class="debugLabel">Back motor</span><span id="debugBackMotorBadge" class="sensorBadge disconnected">Disconnected</span></div>
       <div class="sensorStatusRow"><span class="debugLabel">Battery</span><span id="debugBatteryBadge" class="sensorBadge disconnected">Disconnected</span></div>
+      <div class="sensorStatusRow"><span class="debugLabel">Pi battery</span><span id="debugPiBatteryBadge" class="sensorBadge disconnected">Disconnected</span></div>
       <div class="sensorStatusRow"><span class="debugLabel">Left IR</span><span id="debugLeftIrBadge" class="sensorBadge disconnected">Disconnected</span></div>
       <div class="sensorStatusRow"><span class="debugLabel">Right IR</span><span id="debugRightIrBadge" class="sensorBadge disconnected">Disconnected</span></div>
       <div class="sensorStatusRow"><span class="debugLabel">Camera</span><span id="debugCameraBadge" class="sensorBadge disconnected">Disconnected</span></div>
@@ -854,6 +855,7 @@
   <div class="debugSection">
     <div class="debugSectionTitle">Telemetry</div>
     <div class="debugRow"><span class="debugLabel">Battery percentage:</span> <span id="batteryPercentage" class="debugValue">--</span></div>
+    <div class="debugRow"><span class="debugLabel">Pi battery percentage:</span> <span id="piBatteryPercentage" class="debugValue">--</span></div>
   </div>
 
   <div class="debugSection">
@@ -960,6 +962,7 @@ const robotStatus = document.getElementById("robotStatus");
 const runBtn = document.getElementById("runBtn");
 const resetBtn = document.getElementById("resetBtn");
 const batteryPercentage = document.getElementById("batteryPercentage");
+const piBatteryPercentage = document.getElementById("piBatteryPercentage");
 const debugToggleBtn = document.getElementById("debugToggleBtn");
 const debugDrawer = document.getElementById("debugDrawer");
 const debugBackdrop = document.getElementById("debugBackdrop");
@@ -972,6 +975,7 @@ const debugBackMotorBadge = document.getElementById("debugBackMotorBadge");
 const debugLeftIrBadge = document.getElementById("debugLeftIrBadge");
 const debugRightIrBadge = document.getElementById("debugRightIrBadge");
 const debugBatteryBadge = document.getElementById("debugBatteryBadge");
+const debugPiBatteryBadge = document.getElementById("debugPiBatteryBadge");
 const debugApiState = document.getElementById("debugApiState");
 const debugConnectionMode = document.getElementById("debugConnectionMode");
 const debugRunnerStatus = document.getElementById("debugRunnerStatus");
@@ -1144,6 +1148,60 @@ function buildRobotPathsPayload() {
   };
 }
 
+function getTeleopRunPoints() {
+  const sourcePts = modeData.teleop.pts.map(pt => clampToPlayableField(pt));
+  if (!sourcePts.length) return [];
+
+  const currentPosePoint = clampToPlayableField({ x: robotPose.x, y: robotPose.y });
+  let closestIndex = 0;
+  let closestDistance = Infinity;
+
+  sourcePts.forEach((pt, index) => {
+    const distance = distIn(pt, currentPosePoint);
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestIndex = index;
+    }
+  });
+
+  const suffix = sourcePts.slice(closestIndex);
+  const runPoints = [currentPosePoint];
+  for (const pt of suffix) {
+    if (distIn(pt, runPoints[runPoints.length - 1]) < 0.05) continue;
+    runPoints.push(pt);
+  }
+  return runPoints;
+}
+
+function getRunPointsForCurrentMode() {
+  if (controlMode === "teleop") {
+    return getTeleopRunPoints();
+  }
+  return getPts().map(pt => clampToPlayableField(pt));
+}
+
+function buildRobotPathsPayloadForRun() {
+  const teleopRunPoints = controlMode === "teleop"
+    ? getTeleopRunPoints().map(formatPoint)
+    : modeData.teleop.pts.map(formatPoint);
+
+  return {
+    paths: {
+      auton: modeData.auton.pts.map(formatPoint),
+      teleop: teleopRunPoints
+    },
+    units: "inches",
+    field: {
+      width: FIELD_W_IN,
+      height: FIELD_H_IN,
+      playable_min_x: PLAYABLE_MIN_X_IN,
+      playable_max_x: PLAYABLE_MAX_X_IN,
+      playable_min_y: PLAYABLE_MIN_Y_IN,
+      playable_max_y: PLAYABLE_MAX_Y_IN
+    }
+  };
+}
+
 function setSyncStatus(message, isError = false) {
   syncStatus.textContent = message;
   syncStatus.style.color = isError ? "#a11" : "#333";
@@ -1171,6 +1229,21 @@ function estimateBatteryPercentage(telemetry = {}) {
   const voltage = Number(telemetry.battery_voltage);
   const emptyVoltage = 10.5;
   const fullVoltage = 12.6;
+  return clamp(((voltage - emptyVoltage) / (fullVoltage - emptyVoltage)) * 100, 0, 100);
+}
+
+function estimatePiBatteryPercentage(telemetry = {}) {
+  if (telemetry.pi_battery_percentage != null && !Number.isNaN(Number(telemetry.pi_battery_percentage))) {
+    return clamp(Number(telemetry.pi_battery_percentage), 0, 100);
+  }
+
+  if (telemetry.pi_battery_voltage == null || Number.isNaN(Number(telemetry.pi_battery_voltage))) {
+    return null;
+  }
+
+  const voltage = Number(telemetry.pi_battery_voltage);
+  const emptyVoltage = 3.2;
+  const fullVoltage = 4.2;
   return clamp(((voltage - emptyVoltage) / (fullVoltage - emptyVoltage)) * 100, 0, 100);
 }
 
@@ -1259,6 +1332,8 @@ function updateDebugPanel(payload = null) {
   const backMotorConnected = (serialConnected && resolvedPayload?.back_motor_rpm != null) || simulatedConnected;
   const leftIrConnected = resolvedPayload?.left_edge_detected != null;
   const rightIrConnected = resolvedPayload?.right_edge_detected != null;
+  const mainBatteryConnected = serialConnected && telemetry.battery_voltage != null;
+  const piBatteryConnected = serialConnected && telemetry.pi_battery_voltage != null;
   const fallbackVelocity = getPoseVelocityComponents();
 
   const cameraConnected = cameraFeedConnected || serverCameraConnected;
@@ -1268,6 +1343,8 @@ function updateDebugPanel(payload = null) {
   setSensorBadge(debugSerialBadge, serialConnected);
   setSensorBadge(debugFrontMotorBadge, frontMotorConnected, simulatedConnected ? "Simulated" : "Connected");
   setSensorBadge(debugBackMotorBadge, backMotorConnected, simulatedConnected ? "Simulated" : "Connected");
+  setSensorBadge(debugBatteryBadge, mainBatteryConnected);
+  setSensorBadge(debugPiBatteryBadge, piBatteryConnected);
   setSensorBadge(debugLeftIrBadge, leftIrConnected);
   setSensorBadge(debugRightIrBadge, rightIrConnected);
 
@@ -1462,7 +1539,9 @@ function updateRobotCoords() {
 
 function updateTelemetry(telemetry = {}) {
   const percentage = estimateBatteryPercentage(telemetry);
+  const piPercentage = estimatePiBatteryPercentage(telemetry);
   batteryPercentage.textContent = percentage == null ? "--" : `${Math.round(percentage)}%`;
+  piBatteryPercentage.textContent = piPercentage == null ? "--" : `${Math.round(piPercentage)}%`;
 }
 
 function clearRobotTrail() {
@@ -1734,7 +1813,7 @@ robotConnectionMode.addEventListener("change", () => {
 });
 
 runBtn.addEventListener("click", async () => {
-  const pts = getPts();
+  const pts = getRunPointsForCurrentMode();
 
   if (pts.length < 2) {
     alert("Add at least 2 waypoints before running.");
@@ -1765,7 +1844,7 @@ runBtn.addEventListener("click", async () => {
         mode: controlMode,
         connection: robotConnectionMode.value,
         power_scale: 0.5,
-        robot_paths: buildRobotPathsPayload()
+        robot_paths: buildRobotPathsPayloadForRun()
       })
     });
 
@@ -2350,7 +2429,7 @@ function runLocalSimulationFrame(timestamp) {
 }
 
 function startLocalSimulation() {
-  const pts = getPts();
+  const pts = getRunPointsForCurrentMode();
   const decorated = decorateSamples(sampleDrivePath(pts, SAMPLES_PER_SEG));
   if (decorated.length < 2) {
     alert("Add at least 2 waypoints before running.");
@@ -2377,9 +2456,19 @@ function startLocalSimulation() {
   localSimulation.pauseRemainingS = 0;
 
   const startPose = decorated[0];
-  robotPose.x = startPose.in.x;
-  robotPose.y = startPose.in.y;
-  robotPose.heading = interpolatePoseAtDistance(decorated, 0).heading;
+  const pathStartHeading = interpolatePoseAtDistance(decorated, 0).heading;
+  const shouldContinueTeleopPose =
+    controlMode === "teleop"
+    && Number.isFinite(robotPose.x)
+    && Number.isFinite(robotPose.y);
+
+  if (shouldContinueTeleopPose) {
+    robotPose.heading = Number.isFinite(robotPose.heading) ? robotPose.heading : pathStartHeading;
+  } else {
+    robotPose.x = startPose.in.x;
+    robotPose.y = startPose.in.y;
+    robotPose.heading = pathStartHeading;
+  }
   robotMoving = true;
   setRobotVelocityFromModel(0);
   setRobotMotorRpm(0);
@@ -2544,6 +2633,11 @@ function positionDot(dotEl, p) {
 
 function fullRender() {
   const pts = getPts();
+  const preserveTeleopPose =
+    controlMode === "teleop"
+    && !robotApiConnected
+    && !localSimulation.active
+    && robotTrailPoints.length > 0;
 
   setModeUI();
   updateCurveOnly();
@@ -2551,7 +2645,7 @@ function fullRender() {
   updateLength();
   updateCourseEstimate();
 
-  if (!robotApiConnected && !localSimulation.active && pts.length > 0) {
+  if (!robotApiConnected && !localSimulation.active && pts.length > 0 && !preserveTeleopPose) {
     robotPose.x = pts[0].x;
     robotPose.y = pts[0].y;
     robotPose.heading = getPathStartHeadingDeg();

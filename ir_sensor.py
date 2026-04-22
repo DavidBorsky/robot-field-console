@@ -1,10 +1,10 @@
 """IR edge protection helpers.
 
 These sensors hang over the left and right edges of the robot and look for the
-dark carpet boundary so the robot can avoid falling off the playing surface.
+carpet boundary so the robot can avoid falling off the playing surface.
 """
 
-from drivetrain import FrontBackDrive, MotorCommand
+from drivetrain import MotorCommand
 
 
 class IRSensorState:
@@ -22,54 +22,35 @@ class IRSensorState:
 
 
 class EdgeCorrection:
-    def __init__(self, command, edge_override_active, detail):
+    def __init__(self, command, edge_override_active, detail, stop_run=False):
         self.command = command
         self.edge_override_active = edge_override_active
         self.detail = detail
+        self.stop_run = stop_run
 
 
 class EdgeSafetyController:
-    """Overrides path-following commands when the robot nears the carpet edge.
-
-    Behavior:
-    - left edge detected  -> strafe right to get back on carpet
-    - right edge detected -> strafe left to get back on carpet
-    - both edges detected -> stop and back away a little
-    - no edge detected    -> keep the original command
-    """
-
-    def __init__(self, strafe_strength: float = 0.45, reverse_strength: float = 0.25):
-        self.strafe_strength = max(0.0, min(1.0, strafe_strength))
-        self.reverse_strength = max(0.0, min(1.0, reverse_strength))
-        self.drive = FrontBackDrive()
+    """Hard-stop the robot as soon as either down-facing edge sensor trips."""
 
     def apply(self, requested: MotorCommand, sensors: IRSensorState) -> EdgeCorrection:
-        if sensors.both_edges_detected:
-            command = self.drive.mix(forward=-self.reverse_strength, strafe=0.0)
+        if sensors.any_edge_detected:
+            detail = "IR edge detected: motors stopped to prevent leaving the carpet."
+            if sensors.both_edges_detected:
+                detail = "Both IR edge sensors detected a drop: motors stopped immediately."
+            elif sensors.left_edge_detected:
+                detail = "Left IR edge sensor detected a drop: motors stopped immediately."
+            elif sensors.right_edge_detected:
+                detail = "Right IR edge sensor detected a drop: motors stopped immediately."
             return EdgeCorrection(
-                command=command,
+                command=MotorCommand(front_output=0.0, back_output=0.0),
                 edge_override_active=True,
-                detail="Both edge sensors detected boundary: reversing to safety.",
-            )
-
-        if sensors.left_edge_detected:
-            command = self.drive.mix(forward=0.0, strafe=-self.strafe_strength)
-            return EdgeCorrection(
-                command=command,
-                edge_override_active=True,
-                detail="Left edge sensor detected boundary: strafing right.",
-            )
-
-        if sensors.right_edge_detected:
-            command = self.drive.mix(forward=0.0, strafe=self.strafe_strength)
-            return EdgeCorrection(
-                command=command,
-                edge_override_active=True,
-                detail="Right edge sensor detected boundary: strafing left.",
+                detail=detail,
+                stop_run=True,
             )
 
         return EdgeCorrection(
             command=requested,
             edge_override_active=False,
             detail="No edge detected: following path normally.",
+            stop_run=False,
         )

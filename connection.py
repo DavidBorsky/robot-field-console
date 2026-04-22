@@ -53,10 +53,17 @@ class EncoderSnapshot:
 
 
 class RobotTelemetry:
-    def __init__(self, front_motor_temp_c=None, back_motor_temp_c=None, battery_voltage=None):
+    def __init__(
+        self,
+        front_motor_temp_c=None,
+        back_motor_temp_c=None,
+        battery_voltage=None,
+        pi_battery_voltage=None,
+    ):
         self.front_motor_temp_c = front_motor_temp_c
         self.back_motor_temp_c = back_motor_temp_c
         self.battery_voltage = battery_voltage
+        self.pi_battery_voltage = pi_battery_voltage
 
 
 class SensorSnapshot:
@@ -195,6 +202,9 @@ class SerialArduinoConnection:
             front_temp_c = None if parts[8] == "" else float(parts[8])
             back_temp_c = None if parts[9] == "" else float(parts[9])
             battery_voltage = None if parts[10] == "" else float(parts[10])
+            pi_battery_voltage = None
+            if len(parts) > 11 and parts[11] != "":
+                pi_battery_voltage = float(parts[11])
         except ValueError:
             return None
 
@@ -215,6 +225,7 @@ class SerialArduinoConnection:
                 front_motor_temp_c=front_temp_c,
                 back_motor_temp_c=back_temp_c,
                 battery_voltage=battery_voltage,
+                pi_battery_voltage=pi_battery_voltage,
             ),
         )
 

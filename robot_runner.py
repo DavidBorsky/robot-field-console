@@ -83,6 +83,7 @@ def run_path(
     power_scale: float = DEFAULT_POWER_SCALE,
     status_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     stop_event: Optional[Event] = None,
+    initial_pose: Optional[Dict[str, Any]] = None,
 ) -> None:
     payload = load_robot_paths(path_file)
     waypoints = get_waypoints(payload, mode)
@@ -118,8 +119,13 @@ def run_path(
     )
     print("Power scale: {:.2f}".format(power_scale))
 
+    start_pose = initial_pose or {}
+    start_x = float(start_pose.get("x", waypoints[0].x))
+    start_y = float(start_pose.get("y", waypoints[0].y))
+    start_heading_deg = float(start_pose.get("heading_deg", 0.0))
+
     odom = FrontBackMecanumOdometry()
-    odom.reset(x=waypoints[0].x, y=waypoints[0].y, heading_deg=0.0)
+    odom.reset(x=start_x, y=start_y, heading_deg=start_heading_deg)
     emit_status(
         status_callback,
         running=True,
@@ -166,6 +172,7 @@ def run_path(
     try:
         last_command = None
         path_completed = False
+        edge_stop_detail = None
         for step in range(1, SIM_MAX_STEPS_PER_RUN + 1):
             if stop_event is not None and stop_event.is_set():
                 emit_status(
@@ -266,6 +273,52 @@ def run_path(
                         vision_target.confidence,
                     )
                 )
+            if edge_correction.stop_run:
+                edge_stop_detail = edge_correction.detail
+                connection.send_motor_command(command)
+                last_command = command
+                emit_status(
+                    status_callback,
+                    running=False,
+                    mode=mode,
+                    status="stopped",
+                    detail=edge_correction.detail,
+                    pose={
+                        "x": odom.pose.x,
+                        "y": odom.pose.y,
+                        "heading_deg": odom.pose.heading_deg,
+                    },
+                    travel_direction_deg=travel_direction_deg,
+                    step=step,
+                    max_steps=SIM_MAX_STEPS_PER_RUN,
+                    waypoint_index=debug["current_index"],
+                    remaining_distance=debug["remaining_distance"],
+                    turn_severity=debug["turn_severity"],
+                    speed_scale=debug["speed_scale"],
+                    velocity_in_per_s=0.0,
+                    forward_velocity_in_per_s=0.0,
+                    strafe_velocity_in_per_s=0.0,
+                    front_encoder_count=sensor_snapshot.encoders.front_count,
+                    back_encoder_count=sensor_snapshot.encoders.back_count,
+                    front_motor_rpm=0.0,
+                    back_motor_rpm=0.0,
+                    motor_rpm_estimate=0.0,
+                    velocity_source="encoder",
+                    power_scale=power_scale,
+                    paused_for_corner=debug.get("paused_for_corner", False),
+                    corner_stop_remaining_s=debug.get("corner_stop_remaining_s", 0.0),
+                    edge_override_active=True,
+                    edge_detail=edge_correction.detail,
+                    left_edge_detected=ir_state.left_edge_detected,
+                    right_edge_detected=ir_state.right_edge_detected,
+                    telemetry={
+                        "front_motor_temp_c": sensor_snapshot.telemetry.front_motor_temp_c,
+                        "back_motor_temp_c": sensor_snapshot.telemetry.back_motor_temp_c,
+                        "battery_voltage": sensor_snapshot.telemetry.battery_voltage,
+                        "pi_battery_voltage": sensor_snapshot.telemetry.pi_battery_voltage,
+                    },
+                )
+                break
             emit_status(
                 status_callback,
                 running=True,
@@ -320,6 +373,7 @@ def run_path(
                     "front_motor_temp_c": sensor_snapshot.telemetry.front_motor_temp_c,
                     "back_motor_temp_c": sensor_snapshot.telemetry.back_motor_temp_c,
                     "battery_voltage": sensor_snapshot.telemetry.battery_voltage,
+                    "pi_battery_voltage": sensor_snapshot.telemetry.pi_battery_voltage,
                 },
             )
             if stop_event is not None and stop_event.is_set():
@@ -409,6 +463,9 @@ def run_path(
         elif stop_event is not None and stop_event.is_set():
             final_status = "stopped"
             final_detail = "run stopped by reset request"
+        elif edge_stop_detail is not None:
+            final_status = "stopped"
+            final_detail = edge_stop_detail
         elif last_command is not None:
             final_status = "stopped"
             final_detail = "run stopped before reaching the goal"

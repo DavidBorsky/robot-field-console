@@ -7,14 +7,14 @@
   - two encoder-equipped motors
   - optional left/right IR edge sensors
   - optional front/back temperature analog sense
-  - optional battery-voltage analog sense
+  - optional main-battery and Pi-battery analog sense
 
   Serial protocol from the Pi:
     M,<front_output>,<back_output>
     STOP
 
   Sensor packet back to the Pi:
-    S,<left_edge>,<right_edge>,<heading_deg>,<front_count>,<back_count>,<front_rpm>,<back_rpm>,<front_temp_c>,<back_temp_c>,<battery_voltage>
+    S,<left_edge>,<right_edge>,<heading_deg>,<front_count>,<back_count>,<front_rpm>,<back_rpm>,<front_temp_c>,<back_temp_c>,<battery_voltage>,<pi_battery_voltage>
 
   Important:
   - Outputs are clamped to [-1.0, 1.0]
@@ -64,19 +64,39 @@ const float BACK_ENCODER_COUNTS_PER_REV = 360.0f;
 // Optional sensors. Leave as -1 if not wired yet.
 const int LEFT_IR_PIN = -1;
 const int RIGHT_IR_PIN = -1;
+const int LEFT_IR_ANALOG_PIN = -1;
+const int RIGHT_IR_ANALOG_PIN = -1;
 const int FRONT_TEMP_SENSOR_PIN = -1;
 const int BACK_TEMP_SENSOR_PIN = -1;
 const int BATTERY_VOLTAGE_PIN = -1;
+const int PI_BATTERY_VOLTAGE_PIN = -1;
 const float BATTERY_VOLTAGE_DIVIDER_RATIO = 1.0f;
+const float PI_BATTERY_VOLTAGE_DIVIDER_RATIO = 1.0f;
 const float ADC_REFERENCE_VOLTAGE = 5.0f;
 const float TEMP_SENSOR_VOLTS_PER_C = 0.01f;
 const float TEMP_SENSOR_OFFSET_C = 0.0f;
+const float IR_EDGE_DROP_THRESHOLD_MM = 2.0f;
+const float IR_MM_PER_ADC_COUNT = 0.1f;  // Tune this for your specific IR sensor.
+const unsigned int IR_BASELINE_SAMPLE_COUNT = 8;
+const unsigned long IR_BASELINE_SETTLE_MS = 120;
 
 const unsigned long SENSOR_REPORT_INTERVAL_MS = 50;
 const unsigned long COMMAND_WATCHDOG_TIMEOUT_MS = 250;
 
 unsigned long lastSensorReportMs = 0;
 unsigned long lastCommandMs = 0;
+unsigned long irRunStartMs = 0;
+bool irRunArmed = false;
+
+struct IRSensorTracker {
+  long baselineAccumulator;
+  unsigned int baselineSampleCount;
+  int baselineRaw;
+  bool baselineReady;
+};
+
+IRSensorTracker leftIrTracker = {0, 0, 0, false};
+IRSensorTracker rightIrTracker = {0, 0, 0, false};
 
 float clampUnit(float value) {
   if (value > 1.0f) return 1.0f;
@@ -86,6 +106,10 @@ float clampUnit(float value) {
 
 int toPwm(float value) {
   return (int)(fabs(clampUnit(value)) * 255.0f + 0.5f);
+}
+
+bool commandIsActive(const MotorCommand &command) {
+  return fabs(command.front) > 0.0005f || fabs(command.back) > 0.0005f;
 }
 
 bool encoderPinsConfigured(int aPin, int bPin) {
@@ -206,14 +230,99 @@ int readEdgePin(int pin) {
   return digitalRead(pin) == LOW ? 1 : 0;
 }
 
-float readBatteryVoltage() {
-  if (BATTERY_VOLTAGE_PIN < 0) {
+void resetIrTracker(IRSensorTracker &tracker) {
+  tracker.baselineAccumulator = 0;
+  tracker.baselineSampleCount = 0;
+  tracker.baselineRaw = 0;
+  tracker.baselineReady = false;
+}
+
+void armIrBaselineIfNeeded() {
+  const bool active = commandIsActive(currentCommand);
+  if (active && !irRunArmed) {
+    irRunArmed = true;
+    irRunStartMs = millis();
+    resetIrTracker(leftIrTracker);
+    resetIrTracker(rightIrTracker);
+    return;
+  }
+
+  if (!active && irRunArmed) {
+    irRunArmed = false;
+    resetIrTracker(leftIrTracker);
+    resetIrTracker(rightIrTracker);
+  }
+}
+
+bool analogIrConfigured(int pin) {
+  return pin >= 0;
+}
+
+int readIrAnalogRaw(int pin) {
+  if (!analogIrConfigured(pin)) {
+    return -1;
+  }
+  return analogRead(pin);
+}
+
+bool updateAnalogIrEdgeState(int pin, IRSensorTracker &tracker) {
+  if (!irRunArmed) {
+    return false;
+  }
+
+  const int raw = readIrAnalogRaw(pin);
+  if (raw < 0) {
+    return false;
+  }
+
+  if (millis() - irRunStartMs < IR_BASELINE_SETTLE_MS) {
+    return false;
+  }
+
+  if (!tracker.baselineReady) {
+    tracker.baselineAccumulator += raw;
+    tracker.baselineSampleCount += 1;
+    if (tracker.baselineSampleCount >= IR_BASELINE_SAMPLE_COUNT) {
+      tracker.baselineRaw = (int)(tracker.baselineAccumulator / (long)tracker.baselineSampleCount);
+      tracker.baselineReady = true;
+    }
+    return false;
+  }
+
+  const float deltaMm = fabs((float)(raw - tracker.baselineRaw)) * IR_MM_PER_ADC_COUNT;
+  return deltaMm > IR_EDGE_DROP_THRESHOLD_MM;
+}
+
+int readLeftEdgeState() {
+  if (analogIrConfigured(LEFT_IR_ANALOG_PIN)) {
+    return updateAnalogIrEdgeState(LEFT_IR_ANALOG_PIN, leftIrTracker) ? 1 : 0;
+  }
+  return readEdgePin(LEFT_IR_PIN);
+}
+
+int readRightEdgeState() {
+  if (analogIrConfigured(RIGHT_IR_ANALOG_PIN)) {
+    return updateAnalogIrEdgeState(RIGHT_IR_ANALOG_PIN, rightIrTracker) ? 1 : 0;
+  }
+  return readEdgePin(RIGHT_IR_PIN);
+}
+
+float readScaledVoltage(int pin, float dividerRatio) {
+  if (pin < 0) {
     return NAN;
   }
 
-  const int raw = analogRead(BATTERY_VOLTAGE_PIN);
+  const int raw = analogRead(pin);
   const float sensedVoltage = (raw / 1023.0f) * ADC_REFERENCE_VOLTAGE;
-  return sensedVoltage * BATTERY_VOLTAGE_DIVIDER_RATIO;
+  return sensedVoltage * dividerRatio;
+}
+
+float readBatteryVoltage() {
+  return readScaledVoltage(BATTERY_VOLTAGE_PIN, BATTERY_VOLTAGE_DIVIDER_RATIO);
+}
+
+float readPiBatteryVoltage() {
+  return readScaledVoltage(PI_BATTERY_VOLTAGE_PIN, PI_BATTERY_VOLTAGE_DIVIDER_RATIO);
 }
 
 float readTemperatureC(int pin) {
@@ -240,9 +349,9 @@ void printSensorPacket() {
   const float backTempC = readTemperatureC(BACK_TEMP_SENSOR_PIN);
 
   Serial.print("S,");
-  Serial.print(readEdgePin(LEFT_IR_PIN));
+  Serial.print(readLeftEdgeState());
   Serial.print(",");
-  Serial.print(readEdgePin(RIGHT_IR_PIN));
+  Serial.print(readRightEdgeState());
   Serial.print(",");
   Serial.print("");
   Serial.print(",");
@@ -259,6 +368,8 @@ void printSensorPacket() {
   printOptionalFloat(backTempC);
   Serial.print(",");
   printOptionalFloat(readBatteryVoltage());
+  Serial.print(",");
+  printOptionalFloat(readPiBatteryVoltage());
   Serial.println();
 }
 
@@ -274,9 +385,12 @@ void setupMotorPins() {
 void setupSensorPins() {
   if (LEFT_IR_PIN >= 0) pinMode(LEFT_IR_PIN, INPUT_PULLUP);
   if (RIGHT_IR_PIN >= 0) pinMode(RIGHT_IR_PIN, INPUT_PULLUP);
+  if (LEFT_IR_ANALOG_PIN >= 0) pinMode(LEFT_IR_ANALOG_PIN, INPUT);
+  if (RIGHT_IR_ANALOG_PIN >= 0) pinMode(RIGHT_IR_ANALOG_PIN, INPUT);
   if (FRONT_TEMP_SENSOR_PIN >= 0) pinMode(FRONT_TEMP_SENSOR_PIN, INPUT);
   if (BACK_TEMP_SENSOR_PIN >= 0) pinMode(BACK_TEMP_SENSOR_PIN, INPUT);
   if (BATTERY_VOLTAGE_PIN >= 0) pinMode(BATTERY_VOLTAGE_PIN, INPUT);
+  if (PI_BATTERY_VOLTAGE_PIN >= 0) pinMode(PI_BATTERY_VOLTAGE_PIN, INPUT);
 
   if (encoderPinsConfigured(FRONT_ENCODER_A_PIN, FRONT_ENCODER_B_PIN)) {
     pinMode(FRONT_ENCODER_A_PIN, INPUT_PULLUP);
@@ -344,6 +458,8 @@ void loop() {
   if (nowMs - lastCommandMs >= COMMAND_WATCHDOG_TIMEOUT_MS) {
     stopMotors();
   }
+
+  armIrBaselineIfNeeded();
 
   if (nowMs - lastSensorReportMs >= SENSOR_REPORT_INTERVAL_MS) {
     printSensorPacket();
