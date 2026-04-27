@@ -107,7 +107,7 @@ class HardwareCamera:
     def __init__(
         self,
         index: Optional[int] = None,
-        candidate_indices: Sequence[int] = (0, 1, 2, 3),
+        candidate_indices: Sequence[int] = (0, 1, 2, 3, 10, 11, 12),
     ):
         self.index = index
         self.candidate_indices = tuple(candidate_indices)
@@ -132,6 +132,18 @@ class HardwareCamera:
         if self.index is not None and self.index >= 0:
             return (self.index,)
         return self.candidate_indices
+
+    def _command_devices_to_try(self):
+        if self.index is not None and self.index >= 0:
+            return ("/dev/video{}".format(self.index),)
+        devices = []
+        for camera_index in self._indices_to_try():
+            device = "/dev/video{}".format(camera_index)
+            if device not in devices:
+                devices.append(device)
+        if self.command_device not in devices:
+            devices.append(self.command_device)
+        return tuple(devices)
 
     def start(self) -> None:
         try:
@@ -276,61 +288,67 @@ class HardwareCamera:
             raise RuntimeError("fswebcam is not installed")
 
         palette_attempts = [None, "MJPEG", "YUYV", "UYVY", "JPEG"]
+        devices = self._command_devices_to_try()
         last_error = "unknown fswebcam error"
 
-        for palette in palette_attempts:
-            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as handle:
-                temp_path = Path(handle.name)
+        for device in devices:
+            for palette in palette_attempts:
+                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as handle:
+                    temp_path = Path(handle.name)
 
-            try:
-                command = [
-                    fswebcam,
-                    "-q",
-                    "--no-banner",
-                    "-d",
-                    self.command_device,
-                    "--jpeg",
-                    "50",
-                    "-r",
-                    "{}x{}".format(self.command_width, self.command_height),
-                ]
-                if palette is not None:
-                    command.extend(["--palette", palette])
-                command.append(str(temp_path))
-                result = subprocess.run(
-                    command,
-                    check=False,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    universal_newlines=True,
-                )
-                if result.returncode != 0:
-                    detail = result.stderr.strip() or result.stdout.strip() or "unknown fswebcam error"
-                    last_error = "{}{}".format(
-                        detail,
-                        "" if palette is None else " (palette {})".format(palette),
-                    )
-                    continue
-
-                jpeg_bytes = temp_path.read_bytes()
-                if not jpeg_bytes:
-                    last_error = "fswebcam produced an empty image{}".format(
-                        "" if palette is None else " (palette {})".format(palette),
-                    )
-                    continue
-
-                self.frame_id += 1
-                self.backend_detail = "{} via {}".format(
-                    fswebcam,
-                    "default palette" if palette is None else "{} palette".format(palette),
-                )
-                self.last_error = ""
-                return self.frame_id, jpeg_bytes
-            finally:
                 try:
-                    temp_path.unlink()
-                except Exception:
-                    pass
+                    command = [
+                        fswebcam,
+                        "-q",
+                        "--no-banner",
+                        "-d",
+                        device,
+                        "--jpeg",
+                        "50",
+                        "-r",
+                        "{}x{}".format(self.command_width, self.command_height),
+                    ]
+                    if palette is not None:
+                        command.extend(["--palette", palette])
+                    command.append(str(temp_path))
+                    result = subprocess.run(
+                        command,
+                        check=False,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        universal_newlines=True,
+                    )
+                    if result.returncode != 0:
+                        detail = result.stderr.strip() or result.stdout.strip() or "unknown fswebcam error"
+                        last_error = "{} on {}{}".format(
+                            detail,
+                            device,
+                            "" if palette is None else " (palette {})".format(palette),
+                        )
+                        continue
+
+                    jpeg_bytes = temp_path.read_bytes()
+                    if not jpeg_bytes:
+                        last_error = "fswebcam produced an empty image on {}{}".format(
+                            device,
+                            "" if palette is None else " (palette {})".format(palette),
+                        )
+                        continue
+
+                    self.frame_id += 1
+                    self.command_device = device
+                    self.backend_detail = "{} via {} on {}".format(
+                        fswebcam,
+                        "default palette" if palette is None else "{} palette".format(palette),
+                        device,
+                    )
+                    self.last_error = ""
+                    return self.frame_id, jpeg_bytes
+                finally:
+                    try:
+                        temp_path.unlink()
+                    except Exception:
+                        pass
 
         raise RuntimeError("fswebcam capture failed: {}".format(last_error))
 
