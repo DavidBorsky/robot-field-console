@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 from math import atan2, degrees
 from pathlib import Path
 from threading import Event
@@ -71,6 +72,23 @@ def scale_motor_command(command: MotorCommand, power_scale: float) -> MotorComma
         front_output=command.front_output * power_scale,
         back_output=command.back_output * power_scale,
     )
+
+
+def get_open_loop_straight_test_output() -> Optional[float]:
+    raw_value = os.environ.get("ROBOT_OPEN_LOOP_STRAIGHT_TEST")
+    if raw_value is None or raw_value == "":
+        return None
+    try:
+        output = float(raw_value)
+    except ValueError:
+        raise ValueError(
+            "ROBOT_OPEN_LOOP_STRAIGHT_TEST must be a number between -1.0 and 1.0"
+        )
+    if output < -1.0 or output > 1.0:
+        raise ValueError(
+            "ROBOT_OPEN_LOOP_STRAIGHT_TEST must be a number between -1.0 and 1.0"
+        )
+    return output
 
 
 def run_path(
@@ -170,6 +188,13 @@ def run_path(
 
     print("\nFollower preview:")
     try:
+        open_loop_straight_test_output = get_open_loop_straight_test_output()
+        if open_loop_straight_test_output is not None:
+            print(
+                "Open-loop straight test active: front=back={:.3f}".format(
+                    open_loop_straight_test_output * power_scale
+                )
+            )
         last_command = None
         path_completed = False
         edge_stop_detail = None
@@ -239,6 +264,13 @@ def run_path(
                 debug.get("lookahead_y", odom.pose.y),
                 0.0,
             )
+            if open_loop_straight_test_output is not None:
+                requested_command = MotorCommand(
+                    front_output=open_loop_straight_test_output,
+                    back_output=open_loop_straight_test_output,
+                )
+                debug["speed_scale"] = 1.0
+                debug["turn_severity"] = 0.0
             edge_correction = edge_safety.apply(requested_command, ir_state)
             command = scale_motor_command(edge_correction.command, power_scale)
             print(
