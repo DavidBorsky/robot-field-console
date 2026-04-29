@@ -68,9 +68,10 @@ def emit_status(status_callback: Optional[Callable[[Dict[str, Any]], None]], **p
 
 
 def scale_motor_command(command: MotorCommand, power_scale: float) -> MotorCommand:
+    front_output_scale, back_output_scale = get_motor_output_scales()
     return MotorCommand(
-        front_output=command.front_output * power_scale,
-        back_output=command.back_output * power_scale,
+        front_output=command.front_output * power_scale * front_output_scale,
+        back_output=command.back_output * power_scale * back_output_scale,
     )
 
 
@@ -89,6 +90,26 @@ def get_open_loop_straight_test_output() -> Optional[float]:
             "ROBOT_OPEN_LOOP_STRAIGHT_TEST must be a number between -1.0 and 1.0"
         )
     return output
+
+
+def _read_output_scale(name: str) -> float:
+    raw_value = os.environ.get(name)
+    if raw_value is None or raw_value == "":
+        return 1.0
+    try:
+        scale = float(raw_value)
+    except ValueError:
+        raise ValueError("{} must be a positive number".format(name))
+    if scale <= 0.0:
+        raise ValueError("{} must be a positive number".format(name))
+    return scale
+
+
+def get_motor_output_scales() -> tuple:
+    return (
+        _read_output_scale("ROBOT_FRONT_OUTPUT_SCALE"),
+        _read_output_scale("ROBOT_BACK_OUTPUT_SCALE"),
+    )
 
 
 def run_path(
@@ -136,6 +157,14 @@ def run_path(
         )
     )
     print("Power scale: {:.2f}".format(power_scale))
+    front_output_scale, back_output_scale = get_motor_output_scales()
+    if abs(front_output_scale - 1.0) > 1e-9 or abs(back_output_scale - 1.0) > 1e-9:
+        print(
+            "Motor output scales: front={:.3f} back={:.3f}".format(
+                front_output_scale,
+                back_output_scale,
+            )
+        )
 
     start_pose = initial_pose or {}
     start_x = float(start_pose.get("x", waypoints[0].x))
