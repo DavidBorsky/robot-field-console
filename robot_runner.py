@@ -112,6 +112,23 @@ def get_motor_output_scales() -> tuple:
     )
 
 
+def get_open_loop_straight_test_output() -> Optional[float]:
+    raw_value = os.environ.get("ROBOT_OPEN_LOOP_STRAIGHT_TEST")
+    if raw_value is None or raw_value == "":
+        return None
+    try:
+        output = float(raw_value)
+    except ValueError:
+        raise ValueError(
+            "ROBOT_OPEN_LOOP_STRAIGHT_TEST must be a number between -1.0 and 1.0"
+        )
+    if output < -1.0 or output > 1.0:
+        raise ValueError(
+            "ROBOT_OPEN_LOOP_STRAIGHT_TEST must be a number between -1.0 and 1.0"
+        )
+    return output
+
+
 def run_path(
     mode: str = "auton",
     path_file: Path = DEFAULT_PATH_FILE,
@@ -165,6 +182,11 @@ def run_path(
                 back_output_scale,
             )
         )
+
+    start_pose = initial_pose or {}
+    start_x = float(start_pose.get("x", waypoints[0].x))
+    start_y = float(start_pose.get("y", waypoints[0].y))
+    start_heading_deg = float(start_pose.get("heading_deg", 0.0))
 
     start_pose = initial_pose or {}
     start_x = float(start_pose.get("x", waypoints[0].x))
