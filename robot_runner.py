@@ -9,9 +9,11 @@ from typing import Any, Callable, Dict, List, Optional
 from camera import SimulatedCamera, VisionTarget
 from connection import create_connection
 from constants import (
+    BACK_MOTOR_DIRECTION,
     DEFAULT_CONTROL_DT_S,
     DEFAULT_POWER_SCALE,
     DEFAULT_SERIAL_PORT_LINUX,
+    FRONT_MOTOR_DIRECTION,
     SIM_MAX_STEPS_PER_RUN,
 )
 from drivetrain import MotorCommand
@@ -27,6 +29,47 @@ class Waypoint:
     def __init__(self, x, y):
         self.x = float(x)
         self.y = float(y)
+
+
+def route_axis_aligned_waypoints(points: List[Waypoint]) -> List[Waypoint]:
+    if not points:
+        return []
+
+    routed = [Waypoint(points[0].x, points[0].y)]
+    for index in range(len(points) - 1):
+        start = points[index]
+        end = points[index + 1]
+        dx = end.x - start.x
+        dy = end.y - start.y
+
+        if abs(dx) <= 1e-9 or abs(dy) <= 1e-9:
+            routed.append(Waypoint(end.x, end.y))
+            continue
+
+        prev_axis = None
+        if len(routed) >= 2:
+            prev = routed[-2]
+            curr = routed[-1]
+            prev_dx = curr.x - prev.x
+            prev_dy = curr.y - prev.y
+            prev_axis = "horizontal" if abs(prev_dx) >= abs(prev_dy) else "vertical"
+
+        if prev_axis == "horizontal":
+            corner = Waypoint(start.x, end.y)
+        else:
+            corner = Waypoint(end.x, start.y)
+
+        routed.append(corner)
+        routed.append(Waypoint(end.x, end.y))
+
+    deduped = []  # type: List[Waypoint]
+    for point in routed:
+        if deduped:
+            last = deduped[-1]
+            if abs(last.x - point.x) <= 1e-9 and abs(last.y - point.y) <= 1e-9:
+                continue
+        deduped.append(point)
+    return deduped
 
 
 def heading_from_points(start_x: float, start_y: float, end_x: float, end_y: float, fallback_deg: float = 0.0) -> float:
@@ -58,7 +101,8 @@ def load_robot_paths(path_file: Path = DEFAULT_PATH_FILE) -> dict:
 
 def get_waypoints(payload: Dict[str, Any], mode: str = "auton") -> List[Waypoint]:
     raw_points = payload.get("paths", {}).get(mode, [])
-    return [Waypoint(float(x), float(y)) for x, y in raw_points]
+    parsed = [Waypoint(float(x), float(y)) for x, y in raw_points]
+    return route_axis_aligned_waypoints(parsed)
 
 
 def emit_status(status_callback: Optional[Callable[[Dict[str, Any]], None]], **payload: Any) -> None:
@@ -70,8 +114,18 @@ def emit_status(status_callback: Optional[Callable[[Dict[str, Any]], None]], **p
 def scale_motor_command(command: MotorCommand, power_scale: float) -> MotorCommand:
     front_output_scale, back_output_scale = get_motor_output_scales()
     return MotorCommand(
-        front_output=command.front_output * power_scale * front_output_scale,
-        back_output=command.back_output * power_scale * back_output_scale,
+        front_output=(
+            command.front_output
+            * power_scale
+            * front_output_scale
+            * (1.0 if FRONT_MOTOR_DIRECTION >= 0 else -1.0)
+        ),
+        back_output=(
+            command.back_output
+            * power_scale
+            * back_output_scale
+            * (1.0 if BACK_MOTOR_DIRECTION >= 0 else -1.0)
+        ),
     )
 
 
@@ -110,23 +164,6 @@ def get_motor_output_scales() -> tuple:
         _read_output_scale("ROBOT_FRONT_OUTPUT_SCALE"),
         _read_output_scale("ROBOT_BACK_OUTPUT_SCALE"),
     )
-
-
-def get_open_loop_straight_test_output() -> Optional[float]:
-    raw_value = os.environ.get("ROBOT_OPEN_LOOP_STRAIGHT_TEST")
-    if raw_value is None or raw_value == "":
-        return None
-    try:
-        output = float(raw_value)
-    except ValueError:
-        raise ValueError(
-            "ROBOT_OPEN_LOOP_STRAIGHT_TEST must be a number between -1.0 and 1.0"
-        )
-    if output < -1.0 or output > 1.0:
-        raise ValueError(
-            "ROBOT_OPEN_LOOP_STRAIGHT_TEST must be a number between -1.0 and 1.0"
-        )
-    return output
 
 
 def run_path(
@@ -188,11 +225,6 @@ def run_path(
     start_y = float(start_pose.get("y", waypoints[0].y))
     start_heading_deg = float(start_pose.get("heading_deg", 0.0))
 
-    start_pose = initial_pose or {}
-    start_x = float(start_pose.get("x", waypoints[0].x))
-    start_y = float(start_pose.get("y", waypoints[0].y))
-    start_heading_deg = float(start_pose.get("heading_deg", 0.0))
-
     odom = FrontBackMecanumOdometry()
     odom.reset(x=start_x, y=start_y, heading_deg=start_heading_deg)
     emit_status(
@@ -208,6 +240,10 @@ def run_path(
             "x": odom.pose.x,
             "y": odom.pose.y,
             "heading_deg": odom.pose.heading_deg,
+        },
+        display_pose={
+            "x": odom.pose.x,
+            "y": odom.pose.y,
         },
         travel_direction_deg=heading_for_segment(waypoints, 0, 0.0),
         step=0,
@@ -261,6 +297,10 @@ def run_path(
                         "x": odom.pose.x,
                         "y": odom.pose.y,
                         "heading_deg": odom.pose.heading_deg,
+                    },
+                    display_pose={
+                        "x": debug.get("projected_pose_x", odom.pose.x),
+                        "y": debug.get("projected_pose_y", odom.pose.y),
                     },
                     step=max(step - 1, 0),
                     max_steps=SIM_MAX_STEPS_PER_RUN,
@@ -371,6 +411,10 @@ def run_path(
                         "y": odom.pose.y,
                         "heading_deg": odom.pose.heading_deg,
                     },
+                    display_pose={
+                        "x": debug.get("projected_pose_x", odom.pose.x),
+                        "y": debug.get("projected_pose_y", odom.pose.y),
+                    },
                     travel_direction_deg=travel_direction_deg,
                     step=step,
                     max_steps=SIM_MAX_STEPS_PER_RUN,
@@ -418,6 +462,10 @@ def run_path(
                     "x": odom.pose.x,
                     "y": odom.pose.y,
                     "heading_deg": odom.pose.heading_deg,
+                },
+                display_pose={
+                    "x": debug.get("projected_pose_x", odom.pose.x),
+                    "y": debug.get("projected_pose_y", odom.pose.y),
                 },
                 travel_direction_deg=travel_direction_deg,
                 command={
@@ -471,6 +519,10 @@ def run_path(
                         "y": odom.pose.y,
                         "heading_deg": odom.pose.heading_deg,
                     },
+                    display_pose={
+                        "x": debug.get("projected_pose_x", odom.pose.x),
+                        "y": debug.get("projected_pose_y", odom.pose.y),
+                    },
                     travel_direction_deg=travel_direction_deg,
                     step=step,
                     max_steps=SIM_MAX_STEPS_PER_RUN,
@@ -494,6 +546,10 @@ def run_path(
                         "x": odom.pose.x,
                         "y": odom.pose.y,
                         "heading_deg": odom.pose.heading_deg,
+                    },
+                    display_pose={
+                        "x": debug.get("projected_pose_x", odom.pose.x),
+                        "y": debug.get("projected_pose_y", odom.pose.y),
                     },
                     travel_direction_deg=travel_direction_deg,
                     step=step,
@@ -519,6 +575,10 @@ def run_path(
                         "x": odom.pose.x,
                         "y": odom.pose.y,
                         "heading_deg": odom.pose.heading_deg,
+                    },
+                    display_pose={
+                        "x": debug.get("projected_pose_x", odom.pose.x),
+                        "y": debug.get("projected_pose_y", odom.pose.y),
                     },
                     step=step,
                     max_steps=SIM_MAX_STEPS_PER_RUN,
@@ -564,6 +624,10 @@ def run_path(
                 "x": odom.pose.x,
                 "y": odom.pose.y,
                 "heading_deg": odom.pose.heading_deg,
+            },
+            display_pose={
+                "x": odom.pose.x,
+                "y": odom.pose.y,
             },
             travel_direction_deg=0.0,
             velocity_in_per_s=0.0,

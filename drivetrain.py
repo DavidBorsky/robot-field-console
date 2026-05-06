@@ -87,6 +87,8 @@ class PathFollower:
         pose: Pose2D,
         target_x: float,
         target_y: float,
+        segment_dx: Optional[float] = None,
+        segment_dy: Optional[float] = None,
         target_heading_rad: Optional[float] = None,
         dt: float = DEFAULT_CONTROL_DT_S,
     ) -> Tuple[MotorCommand, Dict[str, float]]:
@@ -95,8 +97,18 @@ class PathFollower:
 
         # For this chassis model, the robot front stays fixed in the field frame.
         # Treat +x as robot forward/back and +y as robot strafe.
+        dominant_axis = "free"
         robot_forward_error = dx
         robot_strafe_error = dy
+        if segment_dx is not None and segment_dy is not None:
+            if abs(segment_dx) >= abs(segment_dy):
+                dominant_axis = "x"
+                robot_forward_error = dx
+                robot_strafe_error = 0.0
+            else:
+                dominant_axis = "y"
+                robot_forward_error = 0.0
+                robot_strafe_error = dy
 
         forward_cmd = self.distance_pid.update(robot_forward_error, 0.0, dt)
         strafe_cmd = self.strafe_pid.update(robot_strafe_error, 0.0, dt)
@@ -113,6 +125,9 @@ class PathFollower:
         debug = {
             "dx": dx,
             "dy": dy,
+            "dominant_axis": dominant_axis,
+            "segment_dx": segment_dx,
+            "segment_dy": segment_dy,
             "robot_forward_error": robot_forward_error,
             "robot_strafe_error": robot_strafe_error,
             "heading_error_rad": heading_error,

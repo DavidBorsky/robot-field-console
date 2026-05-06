@@ -61,11 +61,13 @@ const int BACK_ENCODER_B_PIN = 5;
 const float FRONT_ENCODER_COUNTS_PER_REV = 360.0f;
 const float BACK_ENCODER_COUNTS_PER_REV = 360.0f;
 
-// Optional sensors. Leave as -1 if not wired yet.
+// Optional sensors.
+// Reserve A0/A1 for left/right analog IR sensors so the edge-detect path is
+// ready during bring-up. Leave the digital IR pins disabled for now.
 const int LEFT_IR_PIN = -1;
 const int RIGHT_IR_PIN = -1;
-const int LEFT_IR_ANALOG_PIN = -1;
-const int RIGHT_IR_ANALOG_PIN = -1;
+const int LEFT_IR_ANALOG_PIN = A0;
+const int RIGHT_IR_ANALOG_PIN = A1;
 const int FRONT_TEMP_SENSOR_PIN = -1;
 const int BACK_TEMP_SENSOR_PIN = -1;
 const int BATTERY_VOLTAGE_PIN = -1;

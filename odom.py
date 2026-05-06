@@ -4,6 +4,8 @@ from typing import Optional
 
 from constants import (
     ENCODER_COUNTS_PER_OUTPUT_REV,
+    BACK_ENCODER_DIRECTION,
+    FRONT_ENCODER_DIRECTION,
     ODOM_FORWARD_SCALE,
     ODOM_STRAFE_SCALE,
     PLAYABLE_MAX_X_IN,
@@ -131,6 +133,8 @@ class FrontBackMecanumOdometry:
         strafe_scale: float = ODOM_STRAFE_SCALE,
         wheel_circumference_in: float = WHEEL_CIRCUMFERENCE_IN,
         encoder_counts_per_rev: float = ENCODER_COUNTS_PER_OUTPUT_REV,
+        front_encoder_direction: float = FRONT_ENCODER_DIRECTION,
+        back_encoder_direction: float = BACK_ENCODER_DIRECTION,
     ):
         if forward_scale <= 0:
             raise ValueError("forward_scale must be positive")
@@ -146,6 +150,8 @@ class FrontBackMecanumOdometry:
         self.strafe_scale = strafe_scale
         self.wheel_circumference_in = wheel_circumference_in
         self.encoder_counts_per_rev = encoder_counts_per_rev
+        self.front_encoder_direction = 1.0 if front_encoder_direction >= 0 else -1.0
+        self.back_encoder_direction = 1.0 if back_encoder_direction >= 0 else -1.0
         self._last_front_count = None  # type: Optional[int]
         self._last_back_count = None  # type: Optional[int]
 
@@ -167,6 +173,12 @@ class FrontBackMecanumOdometry:
 
     def _velocity_from_rpm(self, rpm: float) -> float:
         return (rpm / 60.0) * self.wheel_circumference_in
+
+    def _apply_front_direction(self, value: float) -> float:
+        return value * self.front_encoder_direction
+
+    def _apply_back_direction(self, value: float) -> float:
+        return value * self.back_encoder_direction
 
     def update(
         self,
@@ -203,10 +215,10 @@ class FrontBackMecanumOdometry:
         if self._last_front_count is None or self._last_back_count is None:
             self._last_front_count = front_count
             self._last_back_count = back_count
-            self.motion.front_rpm = front_rpm or 0.0
-            self.motion.back_rpm = back_rpm or 0.0
-            self.motion.front_velocity_in_per_s = self._velocity_from_rpm(front_rpm or 0.0)
-            self.motion.back_velocity_in_per_s = self._velocity_from_rpm(back_rpm or 0.0)
+            self.motion.front_rpm = self._apply_front_direction(front_rpm or 0.0)
+            self.motion.back_rpm = self._apply_back_direction(back_rpm or 0.0)
+            self.motion.front_velocity_in_per_s = self._velocity_from_rpm(self.motion.front_rpm)
+            self.motion.back_velocity_in_per_s = self._velocity_from_rpm(self.motion.back_rpm)
             self.motion.robot_forward_velocity_in_per_s = (
                 self.motion.front_velocity_in_per_s + self.motion.back_velocity_in_per_s
             ) / 2.0
@@ -226,11 +238,23 @@ class FrontBackMecanumOdometry:
         self._last_back_count = back_count
 
         if delta_front_counts != 0 or delta_back_counts != 0:
-            front_distance_in = self._distance_from_counts(delta_front_counts, counts_per_rev)
-            back_distance_in = self._distance_from_counts(delta_back_counts, counts_per_rev)
+            front_distance_in = self._distance_from_counts(
+                int(delta_front_counts * self.front_encoder_direction),
+                counts_per_rev,
+            )
+            back_distance_in = self._distance_from_counts(
+                int(delta_back_counts * self.back_encoder_direction),
+                counts_per_rev,
+            )
         elif dt is not None and front_rpm is not None and back_rpm is not None:
-            front_distance_in = self._distance_from_rpm(front_rpm, dt)
-            back_distance_in = self._distance_from_rpm(back_rpm, dt)
+            front_distance_in = self._distance_from_rpm(
+                self._apply_front_direction(front_rpm),
+                dt,
+            )
+            back_distance_in = self._distance_from_rpm(
+                self._apply_back_direction(back_rpm),
+                dt,
+            )
         else:
             front_distance_in = 0.0
             back_distance_in = 0.0
@@ -243,10 +267,10 @@ class FrontBackMecanumOdometry:
 
         self.motion.front_distance_in = front_distance_in
         self.motion.back_distance_in = back_distance_in
-        self.motion.front_rpm = front_rpm or 0.0
-        self.motion.back_rpm = back_rpm or 0.0
-        self.motion.front_velocity_in_per_s = self._velocity_from_rpm(front_rpm or 0.0)
-        self.motion.back_velocity_in_per_s = self._velocity_from_rpm(back_rpm or 0.0)
+        self.motion.front_rpm = self._apply_front_direction(front_rpm or 0.0)
+        self.motion.back_rpm = self._apply_back_direction(back_rpm or 0.0)
+        self.motion.front_velocity_in_per_s = self._velocity_from_rpm(self.motion.front_rpm)
+        self.motion.back_velocity_in_per_s = self._velocity_from_rpm(self.motion.back_rpm)
         self.motion.robot_forward_velocity_in_per_s = (
             self.motion.front_velocity_in_per_s + self.motion.back_velocity_in_per_s
         ) / 2.0

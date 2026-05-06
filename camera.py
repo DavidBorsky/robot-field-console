@@ -9,7 +9,6 @@ command-line capture tools on older Pi images.
 import shutil
 import subprocess
 import tempfile
-import threading
 import time
 from pathlib import Path
 
@@ -118,15 +117,9 @@ class HardwareCamera:
         self.last_error = ""
         self.capture_backend = None
         self.backend_detail = ""
-        self.command_width = 320
-        self.command_height = 240
+        self.command_width = 160
+        self.command_height = 120
         self.command_device = "/dev/video0"
-        self.command_interval_s = 0.2
-        self._latest_command_jpeg_bytes = None
-        self._latest_command_frame_id = 0
-        self._command_lock = threading.Lock()
-        self._command_capture_thread = None
-        self._command_stop_event = threading.Event()
 
     def _indices_to_try(self):
         if self.index is not None and self.index >= 0:
@@ -191,13 +184,6 @@ class HardwareCamera:
             self.running = True
             self.frame_id = 0
             self.capture_backend = "command"
-            self._command_stop_event.clear()
-            self._command_capture_thread = threading.Thread(
-                target=self._command_capture_loop,
-                name="camera-command-capture",
-                daemon=True,
-            )
-            self._command_capture_thread.start()
             if not self.last_error:
                 self.last_error = ""
             return
@@ -208,11 +194,15 @@ class HardwareCamera:
         raise RuntimeError(self.last_error)
 
     def _command_backend_available(self) -> bool:
+        ffmpeg = self._find_command("ffmpeg")
+        if ffmpeg:
+            self.backend_detail = ffmpeg
+            return True
         fswebcam = self._find_command("fswebcam")
         if fswebcam:
             self.backend_detail = fswebcam
             return True
-        self.last_error = "OpenCV not available and fswebcam was not found on PATH"
+        self.last_error = "OpenCV not available and no command-line camera backend was found"
         return False
 
     def _find_command(self, name):
@@ -220,10 +210,6 @@ class HardwareCamera:
 
     def stop(self) -> None:
         self.running = False
-        self._command_stop_event.set()
-        if self._command_capture_thread is not None:
-            self._command_capture_thread.join(timeout=1.0)
-            self._command_capture_thread = None
         if self.cap:
             self.cap.release()
             self.cap = None
@@ -233,16 +219,6 @@ class HardwareCamera:
     def read_frame(self) -> CameraFrame:
         if not self.running or not self.cap or self.cv2 is None:
             if self.capture_backend == "command":
-                with self._command_lock:
-                    if self._latest_command_jpeg_bytes:
-                        return CameraFrame(
-                            frame_id=self._latest_command_frame_id,
-                            width=self.command_width,
-                            height=self.command_height,
-                            source="camera-command",
-                            frame_data=None,
-                            jpeg_bytes=self._latest_command_jpeg_bytes,
-                        )
                 return self._read_frame_from_command()
             raise RuntimeError("HardwareCamera is not running")
 
@@ -271,27 +247,66 @@ class HardwareCamera:
             jpeg_bytes=jpeg_bytes,
         )
 
-    def _command_capture_loop(self) -> None:
-        while not self._command_stop_event.is_set():
-            try:
-                frame_id, jpeg_bytes = self._capture_frame_from_command()
-                with self._command_lock:
-                    self._latest_command_frame_id = frame_id
-                    self._latest_command_jpeg_bytes = jpeg_bytes
-            except Exception as exc:
-                self.last_error = str(exc)
-            self._command_stop_event.wait(self.command_interval_s)
-
     def _capture_frame_from_command(self):
         fswebcam = self._find_command("fswebcam")
-        if not fswebcam:
-            raise RuntimeError("fswebcam is not installed")
+        ffmpeg = self._find_command("ffmpeg")
+        if not fswebcam and not ffmpeg:
+            raise RuntimeError("Neither fswebcam nor ffmpeg is installed")
 
         palette_attempts = [None, "MJPEG", "YUYV", "UYVY", "JPEG"]
         devices = self._command_devices_to_try()
-        last_error = "unknown fswebcam error"
+        last_error = "unknown camera capture error"
 
         for device in devices:
+            if ffmpeg:
+                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as handle:
+                    temp_path = Path(handle.name)
+
+                try:
+                    command = [
+                        ffmpeg,
+                        "-loglevel",
+                        "error",
+                        "-f",
+                        "video4linux2",
+                        "-video_size",
+                        "{}x{}".format(self.command_width, self.command_height),
+                        "-i",
+                        device,
+                        "-frames:v",
+                        "1",
+                        "-q:v",
+                        "5",
+                        "-y",
+                        str(temp_path),
+                    ]
+                    result = subprocess.run(
+                        command,
+                        check=False,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        universal_newlines=True,
+                    )
+                    if result.returncode == 0:
+                        jpeg_bytes = temp_path.read_bytes()
+                        if jpeg_bytes:
+                            self.frame_id += 1
+                            self.command_device = device
+                            self.backend_detail = "{} via default format on {}".format(ffmpeg, device)
+                            self.last_error = ""
+                            return self.frame_id, jpeg_bytes
+                        last_error = "ffmpeg produced an empty image on {}".format(device)
+                    else:
+                        detail = result.stderr.strip() or result.stdout.strip() or "unknown ffmpeg error"
+                        last_error = "{} on {}".format(detail, device)
+                finally:
+                    try:
+                        temp_path.unlink()
+                    except Exception:
+                        pass
+
+            if not fswebcam:
+                continue
             for palette in palette_attempts:
                 with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as handle:
                     temp_path = Path(handle.name)
@@ -350,7 +365,7 @@ class HardwareCamera:
                     except Exception:
                         pass
 
-        raise RuntimeError("fswebcam capture failed: {}".format(last_error))
+        raise RuntimeError("camera capture failed: {}".format(last_error))
 
     def get_target(self) -> VisionTarget:
         # TODO: Implement vision processing to detect targets
@@ -361,10 +376,8 @@ class HardwareCamera:
             if self.capture_backend == "opencv":
                 detail = "connected to camera {} via {}".format(self.index, self.backend_detail)
             else:
-                with self._command_lock:
-                    has_frame = self._latest_command_jpeg_bytes is not None
                 detail = "connected via {}".format(self.backend_detail or "command backend")
-                if not has_frame and self.last_error:
+                if self.last_error:
                     detail = self.last_error
             return CameraStatus(connected=True, mode="hardware", detail=detail, index=self.index)
 

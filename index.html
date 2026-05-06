@@ -683,6 +683,7 @@
         <div class="modeToggle" id="controlModeToggle" aria-label="Control mode toggle">
           <button id="autonBtn" class="modeBtn active" type="button">Auton</button>
           <button id="teleopBtn" class="modeBtn" type="button">Teleop</button>
+          <button id="arrowBtn" class="modeBtn" type="button">Arrow</button>
         </div>
 
         <div class="topConnectionControls">
@@ -702,7 +703,7 @@
         <div id="robotMarker" class="robotMarker" aria-hidden="true"></div>
       </div>
 
-      <div class="row">
+      <div class="row" id="plannerToolsRow">
         <div class="inline">
           <label class="inline">
             <input id="snapOn" type="checkbox" />
@@ -734,14 +735,14 @@
         </div>
       </div>
 
-      <div class="row coordInputs">
+      <div class="row coordInputs" id="typedPointRow">
         <span class="pill">Add point:</span>
         <label class="inline">X <input id="xIn" type="number" step="0.1" min="0" max="96" placeholder="0–96"></label>
         <label class="inline">Y <input id="yIn" type="number" step="0.1" min="0" max="60" placeholder="0–60"></label>
         <button id="addTyped">Add</button>
       </div>
 
-      <div class="row">
+      <div class="row" id="plannerActionsRow">
         <button id="reverse">Reverse Path</button>
         <button id="copyWp">Copy Robot Paths JSON</button>
         <button id="copySamples">Copy Sampled Path JSON</button>
@@ -750,7 +751,7 @@
         <button id="import">Import JSON</button>
       </div>
 
-      <div class="syncRow">
+      <div class="syncRow" id="syncRow">
         <button id="linkRobotPaths" type="button">Link robot-paths.json</button>
         <span id="syncStatus" class="syncStatus">Auto-sync off</span>
       </div>
@@ -930,6 +931,7 @@ const out = document.getElementById("out");
 
 const autonBtn = document.getElementById("autonBtn");
 const teleopBtn = document.getElementById("teleopBtn");
+const arrowBtn = document.getElementById("arrowBtn");
 
 const snapOn = document.getElementById("snapOn");
 const snapStep = document.getElementById("snapStep");
@@ -947,6 +949,11 @@ const syncStatus = document.getElementById("syncStatus");
 const modeLabel = document.getElementById("modeLabel");
 const modeHint = document.getElementById("modeHint");
 const cursorLabel = document.getElementById("cursorLabel");
+const hintEl = document.getElementById("hint");
+const plannerToolsRow = document.getElementById("plannerToolsRow");
+const typedPointRow = document.getElementById("typedPointRow");
+const plannerActionsRow = document.getElementById("plannerActionsRow");
+const plannerSyncRow = document.getElementById("syncRow");
 
 const robotX = document.getElementById("robotX");
 const robotY = document.getElementById("robotY");
@@ -1008,6 +1015,10 @@ const modeData = {
   teleop: {
     pts: [],
     selectedIndex: -1
+  },
+  arrow: {
+    pts: [],
+    selectedIndex: -1
   }
 };
 
@@ -1017,8 +1028,23 @@ let robotPose = {
   heading: 0
 };
 
+let robotDisplayPose = {
+  x: 0,
+  y: 0
+};
+
+let robotDisplayTarget = null;
+
 function getModeState() {
   return modeData[controlMode];
+}
+
+function isArrowControlMode() {
+  return controlMode === "arrow";
+}
+
+function isPathEditingMode() {
+  return controlMode === "auton" || controlMode === "teleop";
 }
 
 function getPts() {
@@ -1046,6 +1072,7 @@ let cameraPollTimer = null;
 let robotPollInFlight = false;
 let cameraRequestInFlight = false;
 let cameraObjectUrl = null;
+let cameraStreamUrl = "";
 let robotApiConnected = false;
 let robotMoving = false;
 let robotVelocityInPerS = 0;
@@ -1055,6 +1082,10 @@ let serverCameraConnected = false;
 let serverCameraDetail = "";
 let cameraFailureCount = 0;
 let liveTimeRemainingSeconds = null;
+const ARROW_DRIVE_POWER_SCALE = 1.0;
+const pressedArrowKeys = new Set();
+let manualDriveRequestInFlight = false;
+let manualDriveQueued = false;
 let robotRemainingDistanceIn = null;
 let lastVelocityPose = null;
 let lastVelocityTimestampMs = null;
@@ -1133,8 +1164,8 @@ function formatPoint(p) {
 function buildRobotPathsPayload() {
   return {
     paths: {
-      auton: modeData.auton.pts.map(formatPoint),
-      teleop: modeData.teleop.pts.map(formatPoint)
+      auton: buildDrivePathPoints(modeData.auton.pts.map(pt => clampToPlayableField(pt))).map(formatPoint),
+      teleop: buildDrivePathPoints(modeData.teleop.pts.map(pt => clampToPlayableField(pt))).map(formatPoint)
     },
     units: "inches",
     field: {
@@ -1175,19 +1206,22 @@ function getTeleopRunPoints() {
 
 function getRunPointsForCurrentMode() {
   if (controlMode === "teleop") {
-    return getTeleopRunPoints();
+    return buildDrivePathPoints(getTeleopRunPoints());
   }
-  return getPts().map(pt => clampToPlayableField(pt));
+  return buildDrivePathPoints(getPts().map(pt => clampToPlayableField(pt)));
 }
 
 function buildRobotPathsPayloadForRun() {
   const teleopRunPoints = controlMode === "teleop"
-    ? getTeleopRunPoints().map(formatPoint)
-    : modeData.teleop.pts.map(formatPoint);
+    ? buildDrivePathPoints(getTeleopRunPoints()).map(formatPoint)
+    : buildDrivePathPoints(modeData.teleop.pts.map(pt => clampToPlayableField(pt))).map(formatPoint);
+  const autonRunPoints = controlMode === "auton"
+    ? buildDrivePathPoints(modeData.auton.pts.map(pt => clampToPlayableField(pt))).map(formatPoint)
+    : buildDrivePathPoints(modeData.auton.pts.map(pt => clampToPlayableField(pt))).map(formatPoint);
 
   return {
     paths: {
-      auton: modeData.auton.pts.map(formatPoint),
+      auton: autonRunPoints,
       teleop: teleopRunPoints
     },
     units: "inches",
@@ -1210,6 +1244,52 @@ function setSyncStatus(message, isError = false) {
 function setRobotStatus(message, isError = false) {
   robotStatus.textContent = message;
   robotStatus.style.color = isError ? "#a11" : "#222";
+}
+
+function enterSimulatedModeReadyState() {
+  stopRobotPolling();
+  robotApiConnected = false;
+  serverCameraConnected = false;
+  serverCameraDetail = "";
+  cameraFeedConnected = false;
+  cameraRequestInFlight = false;
+  if (cameraObjectUrl) {
+    URL.revokeObjectURL(cameraObjectUrl);
+    cameraObjectUrl = null;
+  }
+  cameraFeed.removeAttribute("src");
+  cameraFeed.style.display = "none";
+  cameraPlaceholder.textContent = "Simulation mode";
+  cameraPlaceholder.style.display = "flex";
+  if (!localSimulation.active) {
+    robotMoving = false;
+    setRobotVelocityFromModel(0);
+    setRobotMotorRpm(0);
+    updateRobotCoords();
+  }
+  setRobotStatus("Simulated mode ready. Click Run to start the local simulation.");
+  updateRunButtonState();
+  updateDebugPanel();
+}
+
+function setArrowModeChrome() {
+  const hidePlanner = isArrowControlMode();
+  plannerToolsRow.style.display = hidePlanner ? "none" : "";
+  typedPointRow.style.display = hidePlanner ? "none" : "";
+  plannerActionsRow.style.display = hidePlanner ? "none" : "";
+  plannerSyncRow.style.display = hidePlanner ? "none" : "";
+  out.style.display = hidePlanner ? "none" : "";
+}
+
+function updateRunButtonState() {
+  if (isArrowControlMode()) {
+    runBtn.disabled = true;
+    runBtn.textContent = "Arrow Mode";
+    return;
+  }
+
+  runBtn.disabled = !!robotMoving;
+  runBtn.textContent = robotMoving ? "Running..." : "Run";
 }
 
 function formatTelemetryValue(value, suffix = "") {
@@ -1496,7 +1576,7 @@ function loadRobotPathsPayload(payload) {
   applyPathArray("auton", payload.paths.auton);
   applyPathArray("teleop", payload.paths.teleop);
 
-  if (payload.ui?.controlMode === "teleop" || payload.ui?.controlMode === "auton") {
+  if (["auton", "teleop", "arrow"].includes(payload.ui?.controlMode)) {
     controlMode = payload.ui.controlMode;
   }
 
@@ -1506,17 +1586,26 @@ function loadRobotPathsPayload(payload) {
   }
   autonBtn.classList.toggle("active", controlMode === "auton");
   teleopBtn.classList.toggle("active", controlMode === "teleop");
+  arrowBtn.classList.toggle("active", controlMode === "arrow");
 }
 
 /* =======================
    Mode switching
 ======================= */
 function setControlMode(mode) {
+  const wasArrowMode = isArrowControlMode();
   controlMode = mode;
 
   autonBtn.classList.toggle("active", mode === "auton");
   teleopBtn.classList.toggle("active", mode === "teleop");
+  arrowBtn.classList.toggle("active", mode === "arrow");
 
+  if (wasArrowMode && mode !== "arrow") {
+    pressedArrowKeys.clear();
+    void stopManualDrive();
+  }
+
+  updateRunButtonState();
   hoverIn = null;
   hoverDot.style.display = "none";
   fullRender();
@@ -1524,6 +1613,7 @@ function setControlMode(mode) {
 
 autonBtn.addEventListener("click", () => setControlMode("auton"));
 teleopBtn.addEventListener("click", () => setControlMode("teleop"));
+arrowBtn.addEventListener("click", () => setControlMode("arrow"));
 
 /* =======================
    Robot coordinate display
@@ -1542,6 +1632,64 @@ function updateTelemetry(telemetry = {}) {
   const piPercentage = estimatePiBatteryPercentage(telemetry);
   batteryPercentage.textContent = percentage == null ? "--" : `${Math.round(percentage)}%`;
   piBatteryPercentage.textContent = piPercentage == null ? "--" : `${Math.round(piPercentage)}%`;
+}
+
+function resetRobotDisplayPose(x = robotPose.x, y = robotPose.y) {
+  robotDisplayPose.x = clamp(Number(x) || 0, PLAYABLE_MIN_X_IN, PLAYABLE_MAX_X_IN);
+  robotDisplayPose.y = clamp(Number(y) || 0, PLAYABLE_MIN_Y_IN, PLAYABLE_MAX_Y_IN);
+  robotDisplayTarget = { x: robotDisplayPose.x, y: robotDisplayPose.y };
+}
+
+function updateRobotDisplayPose(payload = null) {
+  if (payload?.display_pose) {
+    robotDisplayTarget = {
+      x: clamp(Number(payload.display_pose.x) || 0, PLAYABLE_MIN_X_IN, PLAYABLE_MAX_X_IN),
+      y: clamp(Number(payload.display_pose.y) || 0, PLAYABLE_MIN_Y_IN, PLAYABLE_MAX_Y_IN)
+    };
+  } else if (payload) {
+    robotDisplayTarget = null;
+  }
+
+  if (localSimulation.active) {
+    robotDisplayTarget = null;
+  }
+
+  if (robotDisplayTarget) {
+    robotDisplayPose.x = robotDisplayTarget.x;
+    robotDisplayPose.y = robotDisplayTarget.y;
+    return { x: robotDisplayPose.x, y: robotDisplayPose.y };
+  }
+
+  const targetX = clamp(robotPose.x, PLAYABLE_MIN_X_IN, PLAYABLE_MAX_X_IN);
+  const targetY = clamp(robotPose.y, PLAYABLE_MIN_Y_IN, PLAYABLE_MAX_Y_IN);
+
+  if (!robotMoving || !payload?.command) {
+    robotDisplayPose.x = targetX;
+    robotDisplayPose.y = targetY;
+    return { x: robotDisplayPose.x, y: robotDisplayPose.y };
+  }
+
+  const front = Number(payload.command.front_output);
+  const back = Number(payload.command.back_output);
+  if (!Number.isFinite(front) || !Number.isFinite(back)) {
+    robotDisplayPose.x = targetX;
+    robotDisplayPose.y = targetY;
+    return { x: robotDisplayPose.x, y: robotDisplayPose.y };
+  }
+
+  const forwardMag = Math.abs(front + back);
+  const strafeMag = Math.abs(front - back);
+  if (forwardMag >= strafeMag) {
+    robotDisplayPose.x = targetX;
+  } else {
+    robotDisplayPose.y = targetY;
+  }
+
+  return { x: robotDisplayPose.x, y: robotDisplayPose.y };
+}
+
+function getRobotDisplayPoint() {
+  return { x: robotDisplayPose.x, y: robotDisplayPose.y };
 }
 
 function clearRobotTrail() {
@@ -1573,12 +1721,9 @@ function appendRobotTrailPoint(point) {
   robotTrailPath.style.display = "";
 }
 
-function updateRobotMarker() {
-  const clampedPose = {
-    x: clamp(robotPose.x, PLAYABLE_MIN_X_IN, PLAYABLE_MAX_X_IN),
-    y: clamp(robotPose.y, PLAYABLE_MIN_Y_IN, PLAYABLE_MAX_Y_IN)
-  };
-  positionDot(robotMarker, clampedPose);
+function updateRobotMarker(payload = null) {
+  const displayPose = updateRobotDisplayPose(payload);
+  positionDot(robotMarker, displayPose);
   const shouldShowMarker =
     robotApiConnected
     || localSimulation.active
@@ -1647,8 +1792,31 @@ function stopRobotPolling() {
   cameraRequestInFlight = false;
 }
 
+function buildCameraStreamUrl(apiBaseUrl) {
+  return "";
+}
+
+function connectCameraStream(forceReload = false) {
+  if (!cameraStreamUrl) return false;
+  if (!forceReload && cameraFeed.src === cameraStreamUrl) return true;
+
+  cameraRequestInFlight = true;
+  cameraFeedConnected = false;
+  cameraPlaceholder.textContent = "Connecting camera stream...";
+  cameraPlaceholder.style.display = "flex";
+  cameraFeed.style.display = "none";
+  cameraFeed.src = forceReload ? `${cameraStreamUrl}&t=${Date.now()}` : cameraStreamUrl;
+  return true;
+}
+
 async function updateCameraFeed() {
   if (!robotApiBaseUrl || cameraRequestInFlight) return;
+  if (cameraStreamUrl) {
+    if (!cameraFeedConnected) {
+      connectCameraStream(true);
+    }
+    return;
+  }
   
   try {
     cameraRequestInFlight = true;
@@ -1712,12 +1880,11 @@ async function pollRobotState() {
       updateVelocityFromPose();
     }
     setRobotMotorRpm(payload.motor_rpm_estimate);
+    updateRobotMarker(payload);
     if (robotMoving) {
-      appendRobotTrailPoint({ x: robotPose.x, y: robotPose.y });
+      appendRobotTrailPoint(getRobotDisplayPoint());
     }
-
     updateRobotCoords();
-    updateRobotMarker();
     updateTelemetry(payload.telemetry || {});
     updateDebugPanel(payload);
 
@@ -1733,8 +1900,7 @@ async function pollRobotState() {
       liveTimeRemaining ? `| time left ${liveTimeRemaining}` : ""
     ].join(" ");
     setRobotStatus(statusText.trim());
-    runBtn.disabled = !!payload.running;
-    runBtn.textContent = payload.running ? "Running..." : "Run";
+    updateRunButtonState();
     resetBtn.disabled = false;
   } catch (err) {
     robotApiConnected = false;
@@ -1747,8 +1913,7 @@ async function pollRobotState() {
     setRobotMotorRpm(0);
     updateRobotMarker();
     updateRobotCoords();
-    runBtn.disabled = false;
-    runBtn.textContent = "Run";
+    updateRunButtonState();
     resetBtn.disabled = false;
     setRobotStatus(`Robot API offline: ${err.message}`, true);
     updateDebugPanel(null);
@@ -1761,12 +1926,26 @@ async function pollRobotState() {
 cameraFeed.addEventListener("error", () => {
   cameraRequestInFlight = false;
   cameraFailureCount += 1;
-  if (!serverCameraConnected && cameraFailureCount >= 2) {
+  if (cameraStreamUrl) {
+    cameraFeedConnected = false;
+    cameraPlaceholder.textContent = "Camera stream unavailable";
+    cameraPlaceholder.style.display = "flex";
+    cameraFeed.style.display = "none";
+  } else if (!serverCameraConnected && cameraFailureCount >= 2) {
     cameraFeedConnected = false;
     cameraFeed.style.display = "none";
     cameraPlaceholder.textContent = "Camera unavailable";
     cameraPlaceholder.style.display = "flex";
   }
+  updateDebugPanel();
+});
+
+cameraFeed.addEventListener("load", () => {
+  cameraRequestInFlight = false;
+  cameraFeedConnected = true;
+  cameraFailureCount = 0;
+  cameraFeed.style.display = "block";
+  cameraPlaceholder.style.display = "none";
   updateDebugPanel();
 });
 
@@ -1778,19 +1957,104 @@ function startRobotPolling() {
     return;
   }
 
+  cameraStreamUrl = buildCameraStreamUrl(robotApiBaseUrl);
   setRobotStatus("Connecting to robot API...");
   pollRobotState();
   robotPollTimer = setInterval(pollRobotState, 1000);
-  updateCameraFeed();
-  cameraPollTimer = setInterval(updateCameraFeed, 1800);
+  if (!connectCameraStream()) {
+    updateCameraFeed();
+  }
+  cameraPollTimer = setInterval(updateCameraFeed, cameraStreamUrl ? 5000 : 350);
+}
+
+function getArrowDriveVector() {
+  const forward =
+    (pressedArrowKeys.has("ArrowRight") ? 1 : 0)
+    - (pressedArrowKeys.has("ArrowLeft") ? 1 : 0);
+  const strafe =
+    (pressedArrowKeys.has("ArrowUp") ? 1 : 0)
+    - (pressedArrowKeys.has("ArrowDown") ? 1 : 0);
+  return { forward, strafe };
+}
+
+async function stopManualDrive() {
+  if (!robotApiBaseUrl) return;
+  try {
+    await fetch(`${robotApiBaseUrl}/manual-stop`, { method: "POST" });
+    pollRobotState();
+  } catch (err) {
+    console.warn("Failed to stop manual drive:", err);
+  }
+}
+
+async function syncManualDriveCommand() {
+  if (!isArrowControlMode()) return;
+  if (manualDriveRequestInFlight) {
+    manualDriveQueued = true;
+    return;
+  }
+
+  robotApiBaseUrl = robotApiUrlInput.value.trim().replace(/\/+$/, "");
+  if (!robotApiBaseUrl) {
+    setRobotStatus("Enter the Pi robot API URL first.", true);
+    return;
+  }
+
+  manualDriveRequestInFlight = true;
+  const { forward, strafe } = getArrowDriveVector();
+
+  try {
+    const endpoint = (forward === 0 && strafe === 0) ? "/manual-stop" : "/manual-drive";
+    const fetchOptions = endpoint === "/manual-drive"
+      ? {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            connection: robotConnectionMode.value,
+            power_scale: ARROW_DRIVE_POWER_SCALE,
+            forward,
+            strafe
+          })
+        }
+      : { method: "POST" };
+
+    const response = await fetch(`${robotApiBaseUrl}${endpoint}`, fetchOptions);
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+
+    if (endpoint === "/manual-drive") {
+      setRobotStatus(`Arrow drive: x=${forward}, y=${strafe}`);
+    } else {
+      setRobotStatus("Arrow drive ready");
+    }
+    pollRobotState();
+  } catch (err) {
+    setRobotStatus(`Arrow drive failed: ${err.message}`, true);
+  } finally {
+    manualDriveRequestInFlight = false;
+    if (manualDriveQueued) {
+      manualDriveQueued = false;
+      void syncManualDriveCommand();
+    }
+  }
 }
 
 connectRobotBtn.addEventListener("click", () => {
+  if (robotConnectionMode.value === "simulated") {
+    enterSimulatedModeReadyState();
+    return;
+  }
   startRobotPolling();
 });
 
 window.addEventListener("load", () => {
-  if (robotApiUrlInput.value.trim()) {
+  if (robotConnectionMode.value === "simulated") {
+    enterSimulatedModeReadyState();
+  } else if (robotApiUrlInput.value.trim()) {
     startRobotPolling();
   }
 });
@@ -1809,10 +2073,20 @@ debugBackdrop.addEventListener("click", () => {
 });
 
 robotConnectionMode.addEventListener("change", () => {
+  if (robotConnectionMode.value === "simulated") {
+    enterSimulatedModeReadyState();
+    return;
+  }
+  updateRunButtonState();
   updateDebugPanel();
 });
 
 runBtn.addEventListener("click", async () => {
+  if (isArrowControlMode()) {
+    setRobotStatus("Arrow mode drives live from the keyboard. Hold the arrow keys to move.");
+    return;
+  }
+
   const pts = getRunPointsForCurrentMode();
 
   if (pts.length < 2) {
@@ -1843,7 +2117,7 @@ runBtn.addEventListener("click", async () => {
       body: JSON.stringify({
         mode: controlMode,
         connection: robotConnectionMode.value,
-        power_scale: 0.5,
+        power_scale: 1.0,
         robot_paths: buildRobotPathsPayloadForRun()
       })
     });
@@ -1868,8 +2142,8 @@ resetBtn.addEventListener("click", async () => {
 
   if (robotConnectionMode.value === "simulated") {
     const pts = getPts();
-    const start = pts[0] || { x: 0, y: 0 };
-    const startHeadingDeg = getPathStartHeadingDeg();
+    const start = isArrowControlMode() ? { x: robotPose.x, y: robotPose.y } : (pts[0] || { x: 0, y: 0 });
+    const startHeadingDeg = isArrowControlMode() ? robotPose.heading : getPathStartHeadingDeg();
     robotPose.x = start.x;
     robotPose.y = start.y;
     robotPose.heading = startHeadingDeg;
@@ -1880,10 +2154,11 @@ resetBtn.addEventListener("click", async () => {
     setRobotMotorRpm(0);
     lastVelocityPose = { x: robotPose.x, y: robotPose.y };
     lastVelocityTimestampMs = performance.now();
+    resetRobotDisplayPose(robotPose.x, robotPose.y);
     clearRobotTrail();
-    appendRobotTrailPoint({ x: robotPose.x, y: robotPose.y });
-    updateRobotCoords();
     updateRobotMarker();
+    appendRobotTrailPoint(getRobotDisplayPoint());
+    updateRobotCoords();
     setRobotStatus("Local simulated pose reset.");
     return;
   }
@@ -1895,8 +2170,8 @@ resetBtn.addEventListener("click", async () => {
   }
 
   const pts = getPts();
-  const start = pts[0] || { x: 0, y: 0 };
-  const startHeadingDeg = getPathStartHeadingDeg();
+  const start = isArrowControlMode() ? { x: robotPose.x, y: robotPose.y } : (pts[0] || { x: 0, y: 0 });
+  const startHeadingDeg = isArrowControlMode() ? robotPose.heading : getPathStartHeadingDeg();
 
   try {
     const response = await fetch(`${robotApiBaseUrl}/reset`, {
@@ -1928,10 +2203,11 @@ resetBtn.addEventListener("click", async () => {
     setRobotMotorRpm(0);
     lastVelocityPose = { x: robotPose.x, y: robotPose.y };
     lastVelocityTimestampMs = performance.now();
+    resetRobotDisplayPose(robotPose.x, robotPose.y);
     clearRobotTrail();
-    appendRobotTrailPoint({ x: robotPose.x, y: robotPose.y });
-    updateRobotCoords();
     updateRobotMarker();
+    appendRobotTrailPoint(getRobotDisplayPoint());
+    updateRobotCoords();
     setRobotStatus("Robot pose reset.");
     startRobotPolling();
   } catch (err) {
@@ -2360,8 +2636,8 @@ function runLocalSimulationFrame(timestamp) {
     robotMoving = false;
     setRobotVelocityFromModel(0, timestamp);
     setRobotMotorRpm(0);
-    appendRobotTrailPoint({ x: robotPose.x, y: robotPose.y });
     updateRobotMarker();
+    appendRobotTrailPoint(getRobotDisplayPoint());
     const remaining = Math.max(0, localSimulation.totalDistance - localSimulation.distanceTravelled);
     robotRemainingDistanceIn = remaining;
     const timeLeft = localSimulation.pauseRemainingS + estimateRemainingTime(
@@ -2402,8 +2678,8 @@ function runLocalSimulationFrame(timestamp) {
 
   setRobotVelocityFromModel(speed, timestamp);
   setRobotMotorRpm((speed / (Math.PI * 2)) * 60);
-  appendRobotTrailPoint({ x: robotPose.x, y: robotPose.y });
   updateRobotMarker();
+  appendRobotTrailPoint(getRobotDisplayPoint());
 
   const remaining = Math.max(0, localSimulation.totalDistance - localSimulation.distanceTravelled);
   robotRemainingDistanceIn = remaining;
@@ -2439,6 +2715,7 @@ function startLocalSimulation() {
   stopRobotPolling();
   stopLocalSimulation();
   robotApiConnected = false;
+  robotDisplayTarget = null;
   localSimulation.active = true;
   localSimulation.samples = decorated;
   localSimulation.totalDistance = decorated[decorated.length - 1].cumulativeDistance;
@@ -2472,10 +2749,11 @@ function startLocalSimulation() {
   robotMoving = true;
   setRobotVelocityFromModel(0);
   setRobotMotorRpm(0);
+  resetRobotDisplayPose(robotPose.x, robotPose.y);
   clearRobotTrail();
-  appendRobotTrailPoint({ x: robotPose.x, y: robotPose.y });
-  updateRobotCoords();
   updateRobotMarker();
+  appendRobotTrailPoint(getRobotDisplayPoint());
+  updateRobotCoords();
   updateTelemetry({});
   runBtn.disabled = true;
   runBtn.textContent = "Running...";
@@ -2543,8 +2821,18 @@ field.appendChild(hoverDot);
    Rendering
 ======================= */
 function setModeUI() {
+  setArrowModeChrome();
+
+  if (isArrowControlMode()) {
+    modeLabel.textContent = "Arrow | live drive";
+    modeHint.textContent = " (Right=+X, Left=-X, Up=+Y, Down=-Y)";
+    hintEl.innerHTML = "<b>Arrow mode:</b> Hold <b>Right</b> for +X forward, <b>Left</b> for -X backward, <b>Up</b> for +Y strafe, and <b>Down</b> for -Y strafe. Release the key to stop.";
+    return;
+  }
+
   modeLabel.textContent = viewMode ? `View | ${controlMode}` : `Edit | ${controlMode}`;
   modeHint.textContent = viewMode ? " (press Enter or click field to continue)" : " (press Enter to lock/view)";
+  hintEl.innerHTML = "<b>Controls:</b> Press <b>Enter</b> to toggle between Edit and View mode. Click to add a point, click it again to delete it, and click and drag to move a point. Coordinates are in <b>inches</b>, with (0,0) at the bottom-left.";
 }
 
 function updateCurveOnly() {
@@ -2645,13 +2933,18 @@ function fullRender() {
   updateLength();
   updateCourseEstimate();
 
-  if (!robotApiConnected && !localSimulation.active && pts.length > 0 && !preserveTeleopPose) {
+  if (isArrowControlMode()) {
+    updateRobotCoords();
+    updateRobotMarker();
+  } else if (!robotApiConnected && !localSimulation.active && pts.length > 0 && !preserveTeleopPose) {
     robotPose.x = pts[0].x;
     robotPose.y = pts[0].y;
     robotPose.heading = getPathStartHeadingDeg();
+    resetRobotDisplayPose(robotPose.x, robotPose.y);
     clearRobotTrail();
-    appendRobotTrailPoint({ x: robotPose.x, y: robotPose.y });
+    appendRobotTrailPoint({ x: robotDisplayPose.x, y: robotDisplayPose.y });
   } else if (!robotApiConnected && !localSimulation.active && pts.length === 0) {
+    resetRobotDisplayPose(0, 0);
     clearRobotTrail();
   }
 
@@ -2691,7 +2984,7 @@ function attachDotHandlers(dot, iAtCreation) {
   let moved = false;
 
   dot.addEventListener("pointerdown", (e) => {
-    if (viewMode) return;
+    if (viewMode || !isPathEditingMode()) return;
 
     e.stopPropagation();
     e.preventDefault();
@@ -2705,7 +2998,7 @@ function attachDotHandlers(dot, iAtCreation) {
   dot.addEventListener("pointermove", (e) => {
     const pts = getPts();
 
-    if (viewMode) return;
+    if (viewMode || !isPathEditingMode()) return;
     if (pointerId === null || e.pointerId !== pointerId) return;
 
     const dx = e.clientX - startClient.x;
@@ -2727,7 +3020,7 @@ function attachDotHandlers(dot, iAtCreation) {
   dot.addEventListener("pointerup", (e) => {
     const pts = getPts();
 
-    if (viewMode) return;
+    if (viewMode || !isPathEditingMode()) return;
     if (pointerId === null || e.pointerId !== pointerId) return;
 
     e.stopPropagation();
@@ -2776,6 +3069,12 @@ field.addEventListener("mousemove", (e) => {
   setCursorLabel(p);
 
   if (viewMode) return;
+  if (!isPathEditingMode()) {
+    hoverIn = null;
+    hoverDot.style.display = "none";
+    updateCurveOnly();
+    return;
+  }
 
   hoverIn = p;
   hoverDot.style.display = "";
@@ -2793,7 +3092,7 @@ field.addEventListener("mouseleave", () => {
 field.addEventListener("pointerdown", (e) => {
   field.focus();
 
-  if (viewMode) return;
+  if (viewMode || !isPathEditingMode()) return;
   if (!e.shiftKey) return;
 
   const inserted = insertPointNearCurve(e);
@@ -2809,7 +3108,7 @@ field.addEventListener("pointermove", (e) => {
   const pts = getPts();
 
   if (!curveDrag) return;
-  if (viewMode) return;
+  if (viewMode || !isPathEditingMode()) return;
   if (e.pointerId !== curveDrag.pointerId) return;
 
   const p = inchesFromEvent(e);
@@ -2831,7 +3130,7 @@ field.addEventListener("click", (e) => {
   const pts = getPts();
 
   if (e.target.closest(".pt")) return;
-  if (viewMode) return;
+  if (viewMode || !isPathEditingMode()) return;
 
   if (e.shiftKey) {
     const inserted = insertPointNearCurve(e);
@@ -2853,6 +3152,7 @@ document.addEventListener("keydown", (e) => {
 
   const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : "";
   if (tag === "input" || tag === "textarea" || tag === "select") return;
+  if (!isPathEditingMode()) return;
 
   viewMode = !viewMode;
   hoverIn = null;
@@ -2861,13 +3161,60 @@ document.addEventListener("keydown", (e) => {
   fullRender();
 });
 
+function isEditableTag(target) {
+  const tag = (target && target.tagName) ? target.tagName.toLowerCase() : "";
+  return tag === "input" || tag === "textarea" || tag === "select";
+}
+
+document.addEventListener("keydown", (e) => {
+  if (!isArrowControlMode()) return;
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+  if (isEditableTag(e.target)) return;
+
+  if (pressedArrowKeys.has(e.key)) {
+    e.preventDefault();
+    return;
+  }
+
+  pressedArrowKeys.add(e.key);
+  e.preventDefault();
+  void syncManualDriveCommand();
+});
+
+document.addEventListener("keyup", (e) => {
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+  if (!pressedArrowKeys.has(e.key)) return;
+
+  pressedArrowKeys.delete(e.key);
+  e.preventDefault();
+  if (isArrowControlMode()) {
+    void syncManualDriveCommand();
+  }
+});
+
+window.addEventListener("blur", () => {
+  if (pressedArrowKeys.size === 0) return;
+  pressedArrowKeys.clear();
+  if (isArrowControlMode()) {
+    void syncManualDriveCommand();
+  }
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden || pressedArrowKeys.size === 0) return;
+  pressedArrowKeys.clear();
+  if (isArrowControlMode()) {
+    void syncManualDriveCommand();
+  }
+});
+
 /* =======================
    Buttons + typed point
 ======================= */
 document.getElementById("undo").onclick = () => {
   const pts = getPts();
 
-  if (viewMode) return;
+  if (viewMode || !isPathEditingMode()) return;
   pts.pop();
   if (getSelectedIndex() >= pts.length) setSelectedIndex(pts.length - 1);
   fullRender();
@@ -2876,7 +3223,7 @@ document.getElementById("undo").onclick = () => {
 document.getElementById("clear").onclick = () => {
   const pts = getPts();
 
-  if (viewMode) return;
+  if (viewMode || !isPathEditingMode()) return;
   pts.length = 0;
   setSelectedIndex(-1);
   fullRender();
@@ -2885,7 +3232,7 @@ document.getElementById("clear").onclick = () => {
 document.getElementById("reverse").onclick = () => {
   const pts = getPts();
 
-  if (viewMode) return;
+  if (viewMode || !isPathEditingMode()) return;
   pts.reverse();
   if (getSelectedIndex() !== -1) {
     setSelectedIndex(pts.length - 1 - getSelectedIndex());
@@ -2988,7 +3335,7 @@ document.getElementById("import").onclick = () => {
 addTypedBtn.onclick = () => {
   const pts = getPts();
 
-  if (viewMode) return;
+  if (viewMode || !isPathEditingMode()) return;
   const x = clamp(Number(xIn.value), PLAYABLE_MIN_X_IN, PLAYABLE_MAX_X_IN);
   const y = clamp(Number(yIn.value), PLAYABLE_MIN_Y_IN, PLAYABLE_MAX_Y_IN);
 
@@ -3023,7 +3370,9 @@ showGrid.addEventListener("change", () => {
 grid.style.display = showGrid.checked ? "" : "none";
 autonBtn.classList.toggle("active", controlMode === "auton");
 teleopBtn.classList.toggle("active", controlMode === "teleop");
+arrowBtn.classList.toggle("active", controlMode === "arrow");
 setModeUI();
+updateRunButtonState();
 fullRender();
 </script>
 
