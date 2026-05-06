@@ -147,14 +147,6 @@ http://192.168.1.42:8765
 6. Verify the robot marker, status panel, and camera panel update correctly.
 7. Run `auton` or `teleop`.
 
-## Before next class
-
-- Read [BRINGUP.md](/home/davidb/codes/waypoint-ui/BRINGUP.md)
-- Review [README-robot.md](/home/davidb/codes/waypoint-ui/README-robot.md)
-- Confirm the Pi-side command you want to use on hardware day
-
-## Notes
-
 - `--simulate` is the safest way to test the full browser/server flow on just a laptop.
 - `--camera-index -1` tries common USB camera indices automatically.
 - If no camera is found, the server should stay up and report camera status instead of crashing.
